@@ -8,4 +8,7 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
+# 许可证随包安装（rosdistro 发布与下游再分发都需要）
+install(FILES LICENSE DESTINATION share/${PROJECT_NAME})
+
 ament_package()

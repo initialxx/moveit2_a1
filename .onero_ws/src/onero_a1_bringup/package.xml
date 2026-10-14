@@ -12,9 +12,21 @@
   <license>Apache-2.0</license>
 
   <url type="repository">https://github.com/onerobotics/onero_a1_ros2</url>
+  <url type="bugtracker">https://github.com/onerobotics/onero_a1_ros2/issues</url>
 
   <buildtool_depend>ament_python</buildtool_depend>
 
+  <!-- 注意：真机模式（simulate:=false）运行时还需要 onero-sdk（PyPI 包）。
+       它目前不是 rosdep key，因此**故意不在此声明** —— 声明了会让
+       `rosdep install` 与 ROS build farm 直接失败。
+       发布前应先向 rosdistro 提 rosdep key：
+           onero_sdk:
+             pip:
+               packages: [onero-sdk]
+       在那之前，真机用户请自行 `pip install onero-sdk`；
+       桥接节点在缺少该依赖时会给出明确报错，不会静默降级。 -->
+
+  <exec_depend>ament_index_python</exec_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>controller_manager</exec_depend>

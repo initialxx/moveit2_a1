@@ -11,8 +11,14 @@
   <license>Apache-2.0</license>
 
   <url type="repository">https://github.com/onerobotics/onero_a1_ros2</url>
+  <url type="bugtracker">https://github.com/onerobotics/onero_a1_ros2/issues</url>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- launch 文件里 import 的包 -->
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
 
   <!-- 描述与可视化 -->
   <exec_depend>urdf</exec_depend>
