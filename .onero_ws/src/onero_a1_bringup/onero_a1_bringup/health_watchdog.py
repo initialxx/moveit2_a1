@@ -95,9 +95,14 @@ class BridgeWatchdog(Node):
 
     def _check(self) -> None:
         if self._last_msg_time is None:
-            # 启动后还没收到过任何状态
-            if self._msg_count == 0 and self._elapsed_since_start() > self._timeout:
-                self._handle_stale("启动后从未收到状态")
+            # 启动后还没收到过任何状态。
+            #
+            # 必须判断 _status：否则会以 check_rate（默认 10Hz）反复刷屏，
+            # 把终端里真正有用的启动错误（例如 topic_bridge 的崩溃原因）淹没掉。
+            if (self._msg_count == 0
+                    and self._status != self.STATE_STALE
+                    and self._elapsed_since_start() > self._timeout):
+                self._handle_stale("启动后从未收到状态", never_received=True)
             return
 
         age = time.monotonic() - self._last_msg_time
@@ -113,12 +118,25 @@ class BridgeWatchdog(Node):
     def _elapsed_since_start(self) -> float:
         return time.monotonic() - self._start_time()
 
-    def _handle_stale(self, reason: str) -> None:
+    def _handle_stale(self, reason: str, never_received: bool = False) -> None:
         self._status = self.STATE_STALE
-        self.get_logger().error(
-            f"话题桥失联：{reason}。"
-            "硬件接口会持续返回最后一帧状态，MoveIt 可能误判为正常。"
-        )
+        if never_received:
+            # 和「曾经有、后来断了」是两回事，排查方向完全不同：
+            # 这里一帧都没来过，硬件接口读到的是 initial_value（0.0），不是最后一帧。
+            # 最常见的原因就是 topic_bridge 自己没起来。
+            self.get_logger().error(
+                "话题桥从未发布过状态。硬件接口读到的会是 initial_value（0.0），"
+                "不是真实位置。\n"
+                "        最可能的原因：topic_bridge 节点启动失败。"
+                "请查看 launch 输出中 topic_bridge 的报错 —— 常见的是 "
+                "onero_sdk 未安装（source setup_env.sh，或 pip install onero-sdk）、"
+                "CAN 接口不存在或未 UP。"
+            )
+        else:
+            self.get_logger().error(
+                f"话题桥失联：{reason}。"
+                "硬件接口会持续返回最后一帧状态，MoveIt 可能误判为正常。"
+            )
         if self._auto_deactivate and not self._deactivated_by_us:
             self._switch(activate=False)
 

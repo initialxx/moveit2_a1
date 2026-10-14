@@ -30,6 +30,24 @@ else
   OVERLAY_STATUS="未使用"
 fi
 
+# ── onero-sdk（真机模式必需）──────────────────────────────────────────
+# 话题桥在 simulate:=false 时会 import onero_sdk；缺了它节点会在启动时
+# 直接抛 RuntimeError 退出，表现为「看门狗一直报启动后从未收到状态」。
+#
+# 优先用已安装的（pip install onero-sdk）；
+# 没装则回退到源码目录，可用 ONERO_SDK_DIR 覆盖。
+if python3 -c "import onero_sdk" 2>/dev/null; then
+  SDK_STATUS="已安装（import 可用）"
+else
+  ONERO_SDK_DIR="${ONERO_SDK_DIR:-/home/initialxx/project/armsdk}"
+  if [ -d "${ONERO_SDK_DIR}/onero_sdk" ]; then
+    export PYTHONPATH="${ONERO_SDK_DIR}:${PYTHONPATH:-}"
+    SDK_STATUS="源码目录 ${ONERO_SDK_DIR}"
+  else
+    SDK_STATUS="✗ 缺失 —— 真机模式会启动失败（pip install onero-sdk，或设 ONERO_SDK_DIR）"
+  fi
+fi
+
 # 工作区 overlay
 if [ -f "${WS_DIR}/install/setup.bash" ]; then
   source "${WS_DIR}/install/setup.bash"
@@ -40,6 +58,7 @@ echo "  WS_DIR      = ${WS_DIR}"
 echo "  ROS_HOME    = ${ROS_HOME}"
 echo "  ROS_DISTRO  = ${ROS_DISTRO}"
 echo "  overlay     = ${OVERLAY_STATUS}"
+echo "  onero-sdk   = ${SDK_STATUS}"
 
 # 提示话题桥插件是否可用
 if ros2 pkg prefix joint_state_topic_hardware_interface >/dev/null 2>&1; then
