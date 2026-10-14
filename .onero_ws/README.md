@@ -185,6 +185,40 @@ ros2 param get /move_group ompl.planning_plugins
 | `can_channel` | `can0` | SocketCAN 接口（simulate=false 时） |
 | `model` | `A1R` | armsdk 模型名 |
 | `kp` / `kd` | `50.0` / `1.0` | MIT 阻抗增益 |
+| `on_fault_action` | `log` | 电机故障处置：`log` / `hold` / `disable` |
+| `max_consecutive_misses` | `10` | 连续丢帧多少次后报 ERROR |
+| `allow_disable_service` | `false` | 是否允许 `~/disable` 真的断使能（**默认拒绝**，见下） |
+| `gravity_compensation` | `false` | 重力矩前馈（需要 `pinocchio`） |
+| `max_gravity_torque` | `15.0` | 重力矩前馈幅值钳制（安全网） |
+
+### 使能 / 失能服务（仅真机模式）
+
+| 服务 | 行为 |
+|---|---|
+| `~/enable` | 使能电机，并把目标对齐当前位置（避免使能瞬间跳变） |
+| `~/disable` | 断使能电机。**默认拒绝执行**，需 `-p allow_disable_service:=true` |
+
+> ⚠️ **为什么 `~/disable` 默认拒绝**：断使能=卸力，带载且无支撑的机械臂会**掉落**。
+> 必须由人确认机械臂已被物理支撑托住后再开启该服务。
+> 另外，失能后 `arm_controller` 仍是 active，MoveIt 仍会下发轨迹（本节点会忽略）；
+> 如需彻底阻断，请另行停用控制器。
+
+### 重力补偿前馈（默认关）
+
+开启 `gravity_compensation:=true` 会用 pinocchio 计算重力矩并作为前馈下发。
+**它不是拿来就能用的**，因为错误的负载参数会算出错误力矩：
+
+- 需要 `pip install 'onero-sdk[dynamics]'`（pinocchio）
+- 未安装、找不到 URDF、维度不符时**一律显式报错**并退回零前馈，**绝不静默降级**
+- 力矩带 ±`max_gravity_torque` 钳制，异常值直接退化为 0
+- ⚠️ **本特性尚未在真机上验证过**（开发环境无 pinocchio 也无硬件），
+  首次启用请务必空载、低速、有人看护
+
+> **移植来源与踩坑记录**：这个特性是从 `armsdk/ros2` 移植的。原实现调用
+> `_find_urdf("A1R")`，而签名是 `_find_urdf(model_name, variant="r")`，
+> 于是**永远返回 None、重力补偿从不生效且一行日志都不打**。
+> 这里改用正确调用 `_find_urdf("A1", "r")`，并把每种失败都讲清楚。
+> 详见 `.notes/两套实现对比与合并建议.md` 的 S10。
 
 > **kp/kd 说明**：MoveIt 的 `FollowJointTrajectory` 协议里**没有增益字段**，
 > 所以 kp/kd 只能通过 ROS 参数传入（非逐周期可变）。

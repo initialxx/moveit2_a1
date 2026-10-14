@@ -33,6 +33,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import JointState
+from std_srvs.srv import Trigger
 
 DEFAULT_JOINT_NAMES = [
     "joint1-a1_r", "joint2-a1_r", "joint3-a1_r", "joint4-a1_r",
@@ -70,6 +71,18 @@ class OneroTopicBridge(Node):
         self.declare_parameter("on_fault_action", "log")
         self.declare_parameter("max_consecutive_misses", 10)
 
+        # 使能/失能服务（~/enable、~/disable）
+        #   失能会让电机卸力 —— 带载且无支撑时机械臂会掉落。
+        #   因此 ~/disable 默认【拒绝执行】，必须显式开启：
+        #       -p allow_disable_service:=true
+        self.declare_parameter("allow_disable_service", False)
+
+        # 重力补偿前馈（可选，默认关）
+        #   需要 onero-sdk 的 dynamics 依赖（pinocchio）。开启前请确认负载参数正确，
+        #   错误的力矩前馈会导致非预期运动。详见 _init_gravity_compensation()。
+        self.declare_parameter("gravity_compensation", False)
+        self.declare_parameter("max_gravity_torque", 15.0)
+
         gp = self.get_parameter
         self._joint_names: list[str] = list(gp("joint_names").value)
         self._n = len(self._joint_names)
@@ -105,15 +118,29 @@ class OneroTopicBridge(Node):
         self._can_faults = 0
         self._hold = False          # on_fault_action=hold 时置位，冻结目标
 
+        # 电机使能状态。模拟模式下恒为 True（没有真实电机可控制）。
+        # 失能后控制循环不再下发命令，只继续发布（冻结的）状态。
+        self._enabled = True
+        self._allow_disable = bool(gp("allow_disable_service").value)
+
+        # 重力补偿前馈（可选）
+        self._dynamics = None
+        self._max_gravity_torque = abs(float(gp("max_gravity_torque").value))
+
         # ─── 硬件后端 ────────────────────────────────────────────────
         self._backend = None
         if not self._simulate:
             self._init_hardware()
+            self._init_gravity_compensation(gp("gravity_compensation").value)
         else:
             self.get_logger().warn(
                 "simulate=true —— 不连接硬件，用一阶跟随模拟机械臂。"
                 "接真机请设置 simulate:=false"
             )
+            if gp("gravity_compensation").value:
+                self.get_logger().warn(
+                    "gravity_compensation=true 在模拟模式下无效（力矩前馈只对真机有意义）"
+                )
 
         # ─── ROS 接口 ────────────────────────────────────────────────
         # 命令用 reliable + depth 1：永远只关心最新目标，不积压
@@ -143,6 +170,16 @@ class OneroTopicBridge(Node):
         self._state_pub = self.create_publisher(
             JointState, gp("joint_states_topic").value, state_qos
         )
+
+        # ─── 使能 / 失能服务 ─────────────────────────────────────────
+        # 只在真机模式创建：模拟模式下没有电机可使能，创建了反而误导。
+        if self._backend is not None:
+            self._enable_srv = self.create_service(
+                Trigger, "~/enable", self._on_enable
+            )
+            self._disable_srv = self.create_service(
+                Trigger, "~/disable", self._on_disable
+            )
 
         # ─── 控制线程 ────────────────────────────────────────────────
         self._running = True
@@ -196,10 +233,159 @@ class OneroTopicBridge(Node):
         state = self._backend.enable()
         self._state_pos = list(state.joints)
         self._cmd_pos = list(state.joints)
+        self._enabled = True
         self.get_logger().info(
             f"已连接 CAN '{channel}' | 模型 {model_name} | 电机已使能 | "
             f"故障处置={self._on_fault_action}"
         )
+
+    def _init_gravity_compensation(self, requested) -> None:
+        """按需启用重力矩前馈。失败一律**显式报错**，绝不静默降级。
+
+        背景：`armsdk/ros2` 里这段代码调用的是 `_find_urdf("A1R")`，
+        而该函数签名是 `_find_urdf(model_name, variant="r")` —— 传 "A1R" 会
+        去 glob `onero_sdk/urdf/A1R/*.urdf`（不存在）并返回 None，
+        于是 `if urdf_path:` 为假，**重力补偿永远不生效，且一行日志都不打**。
+        这里改用正确调用，并把每种失败都讲清楚。
+        """
+        if not requested:
+            return
+
+        try:
+            from onero_sdk.dynamics import DynamicsModel
+            from onero_sdk.model_registry import _find_urdf
+        except ImportError as e:
+            self.get_logger().error(
+                f"gravity_compensation=true 但无法导入 onero_sdk.dynamics（{e}）。"
+                "需要安装动力学可选依赖，通常是：pip install 'onero-sdk[dynamics]'"
+                "（依赖 pinocchio）。**力矩前馈未启用**，控制循环按零前馈运行。"
+            )
+            return
+
+        model_name = str(self.get_parameter("model").value).upper()
+        # 型号形如 A1R / A1L —— 拆成 ("A1", "r"/"l")，这才是 _find_urdf 的签名
+        # （# 直接传 "A1R" 会去 glob onero_sdk/urdf/A1R/ 并返回 None）
+        variant = model_name[-1].lower() if model_name[-1] in ("R", "L") else "r"
+        base = "A1" if model_name.startswith("A1") else model_name
+
+        try:
+            urdf = _find_urdf(base, variant)
+        except Exception as e:  # noqa: BLE001
+            self.get_logger().error(f"查找 URDF 失败：{e}。力矩前馈未启用。")
+            return
+
+        if urdf is None:
+            self.get_logger().error(
+                f"找不到模型 '{base}'（变体 '{variant}'）的 URDF，力矩前馈未启用。"
+                f"期望路径：onero_sdk/urdf/{base}/{base.lower()}_{variant}.urdf"
+            )
+            return
+
+        try:
+            self._dynamics = DynamicsModel(str(urdf))
+        except Exception as e:  # noqa: BLE001
+            self.get_logger().error(
+                f"初始化动力学模型失败（{type(e).__name__}: {e}）。力矩前馈未启用。"
+            )
+            return
+
+        self.get_logger().info(
+            f"重力补偿已启用 | URDF {urdf} | 力矩上限 ±{self._max_gravity_torque:.1f} N·m"
+        )
+
+    def _gravity_torques(self, positions: list[float]) -> list[float]:
+        """算重力矩前馈，带幅值钳制与失败降级。
+
+        钳制是安全网：错误的负载参数或模型会算出离谱力矩，
+        宁可退化成零前馈，也不要给电机灌一个错误的大力矩。
+        """
+        if self._dynamics is None:
+            return [0.0] * self._n
+        try:
+            tau = list(self._dynamics.gravity_torques(list(positions)))
+        except Exception as e:  # noqa: BLE001 — 控制循环不能因为前馈挂掉
+            self.get_logger().error(
+                f"重力矩计算失败，本周期按零前馈运行：{e}",
+                throttle_duration_sec=5.0,
+            )
+            return [0.0] * self._n
+
+        if len(tau) != self._n:
+            self.get_logger().error(
+                f"重力矩维度不符（{len(tau)} != {self._n}），本周期按零前馈运行",
+                throttle_duration_sec=5.0,
+            )
+            return [0.0] * self._n
+
+        out = []
+        for i, t in enumerate(tau):
+            if not math.isfinite(t):
+                out.append(0.0)
+                continue
+            if abs(t) > self._max_gravity_torque:
+                self.get_logger().warn(
+                    f"关节{i+1} 重力矩 {t:.2f} 超过上限 "
+                    f"{self._max_gravity_torque:.1f}，已钳制",
+                    throttle_duration_sec=5.0,
+                )
+                t = math.copysign(self._max_gravity_torque, t)
+            out.append(float(t))
+        return out
+
+    # ─── 使能 / 失能 ─────────────────────────────────────────────────
+
+    def _on_enable(self, _request, response):
+        """重新使能电机。"""
+        try:
+            state = self._backend.enable()
+            with self._lock:
+                self._state_pos = list(state.joints)
+                self._cmd_pos = list(state.joints)   # 目标对齐当前位置，避免跳变
+                self._enabled = True
+            response.success = True
+            response.message = "电机已使能"
+            self.get_logger().warn("电机已使能（目标已对齐当前位置）")
+        except Exception as e:  # noqa: BLE001
+            response.success = False
+            response.message = f"使能失败: {e}"
+            self.get_logger().error(f"使能失败: {e}")
+        return response
+
+    def _on_disable(self, _request, response):
+        """断使能电机。
+
+        ⚠️ 这是危险操作：卸力后带载的机械臂会掉落。
+        因此默认**拒绝执行**，必须显式开启 allow_disable_service 参数。
+        """
+        if not self._allow_disable:
+            response.success = False
+            response.message = (
+                "已拒绝：断使能会让机械臂卸力，带载且无支撑时会掉落。"
+                "确认机械臂已由物理支撑托住后，用启动参数开启本服务："
+                " -p allow_disable_service:=true"
+            )
+            self.get_logger().error(
+                "收到 ~/disable 请求但已拒绝（allow_disable_service=false）。"
+                "这是防止带载掉臂的保护。"
+            )
+            return response
+
+        try:
+            with self._lock:
+                self._enabled = False             # 控制循环随即停止下发
+            self._backend.disable()
+            response.success = True
+            response.message = "电机已断使能 —— 机械臂已卸力"
+            self.get_logger().warn(
+                "电机已断使能（~/disable）—— ⚠️ 机械臂已卸力，请确认其处于支撑状态。"
+                "注意：arm_controller 仍处于 active，MoveIt 仍会下发轨迹"
+                "（本节点会忽略），如需彻底阻断请停用控制器。"
+            )
+        except Exception as e:  # noqa: BLE001
+            response.success = False
+            response.message = f"断使能失败: {e}"
+            self.get_logger().error(f"断使能失败: {e}")
+        return response
 
     # ─── CAN 健康回调（仅真机模式）────────────────────────────────────
 
@@ -259,6 +445,10 @@ class OneroTopicBridge(Node):
             if self._hold:
                 # 已因硬件故障进入保持模式：忽略一切新目标
                 return
+            if not self._enabled:
+                # 已失能：不接受新目标，避免 _cmd_pos 悄悄漂到别处，
+                # 使能时再对齐当前位置
+                return
             for name, pos in zip(msg.name, msg.position):
                 i = self._idx.get(name)
                 if i is None:
@@ -291,14 +481,19 @@ class OneroTopicBridge(Node):
                 cmd = list(self._cmd_pos)
 
             # 2) 与硬件交互（真机 or 模拟）
+            #    失能后不再下发命令 —— 电机已卸力，继续发没有意义，
+            #    而且 MIT 帧可能会把电机重新拉起来。状态照常发布。
             if self._backend is not None:
+                if not self._enabled:
+                    time.sleep(self._control_dt)
+                    continue
                 try:
                     state = self._backend.command(
                         positions=cmd,
                         velocities=[0.0] * self._n,
                         kps=[self._kp] * self._n,
                         kds=[self._kd] * self._n,
-                        torques=[0.0] * self._n,
+                        torques=self._gravity_torques(cmd),
                     )
                     with self._lock:
                         self._state_pos = list(state.joints)
