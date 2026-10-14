@@ -1,0 +1,79 @@
+<?xml version="1.0"?>
+<!--
+  ros2_control 硬件配置
+
+  两种模式：
+    use_fake_hardware = true   ->  mock_components/GenericSystem
+                                    纯模拟，不需要任何外部进程。
+                                    用于验证 MoveIt 配置是否正确。
+
+    use_fake_hardware = false  ->  joint_state_topic_hardware_interface/JointStateTopicSystem
+                                    把 ros2_control 桥接到两个话题，
+                                    由我们的 Python 节点（armsdk 适配层）收发。
+                                    话题消息类型均为 sensor_msgs/JointState。
+
+  说明：本插件来自 ros-controls 官方仓库
+        https://github.com/ros-controls/topic_based_hardware_interfaces
+        （由 PickNik 的 topic_based_ros2_control 上游合并而来，
+          旧插件名 topic_based_ros2_control/TopicBasedSystem 仍可用但已弃用）
+
+  命令接口只声明 position —— JointTrajectoryController 用位置控制。
+  将来若需要力矩/阻抗，再增加 effort（该插件支持 position/velocity/effort）。
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="onero_a1_ros2_control"
+               params="name use_fake_hardware joint_commands_topic joint_states_topic">
+
+    <ros2_control name="${name}" type="system">
+      <hardware>
+        <xacro:if value="${use_fake_hardware}">
+          <plugin>mock_components/GenericSystem</plugin>
+          <param name="fake_sensor_commands">false</param>
+          <param name="state_following_offset">0.0</param>
+          <param name="calculate_dynamics">true</param>
+        </xacro:if>
+        <xacro:unless value="${use_fake_hardware}">
+          <plugin>joint_state_topic_hardware_interface/JointStateTopicSystem</plugin>
+          <param name="joint_commands_topic">${joint_commands_topic}</param>
+          <param name="joint_states_topic">${joint_states_topic}</param>
+          <!-- 命令与当前状态差小于此值时不发布；-1 表示总是发布 -->
+          <param name="trigger_joint_command_threshold">-1</param>
+        </xacro:unless>
+      </hardware>
+
+      <!-- 7 个关节：joint1-a1_r ... joint7-a1_r（与 armsdk 一致）
+
+           注意：所有接口都显式给出 initial_value。
+           ros2_control 对【没有 initial_value 的接口】会用 NaN 初始化
+           （hardware_interface/handle.hpp），NaN 一旦流到下游会持续污染，
+           且 JTC 的到位判断会因此失效。 -->
+      <xacro:macro name="onero_a1_joint" params="joint">
+        <joint name="${joint}">
+          <command_interface name="position">
+            <param name="initial_value">0.0</param>
+          </command_interface>
+          <state_interface name="position">
+            <param name="initial_value">0.0</param>
+          </state_interface>
+          <state_interface name="velocity">
+            <param name="initial_value">0.0</param>
+          </state_interface>
+          <state_interface name="effort">
+            <param name="initial_value">0.0</param>
+          </state_interface>
+        </joint>
+      </xacro:macro>
+
+      <xacro:onero_a1_joint joint="joint1-a1_r"/>
+      <xacro:onero_a1_joint joint="joint2-a1_r"/>
+      <xacro:onero_a1_joint joint="joint3-a1_r"/>
+      <xacro:onero_a1_joint joint="joint4-a1_r"/>
+      <xacro:onero_a1_joint joint="joint5-a1_r"/>
+      <xacro:onero_a1_joint joint="joint6-a1_r"/>
+      <xacro:onero_a1_joint joint="joint7-a1_r"/>
+
+    </ros2_control>
+  </xacro:macro>
+
+</robot>

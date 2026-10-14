@@ -1,0 +1,320 @@
+# Onero A1 × MoveIt 2 工作区
+
+把 Onero A1 七自由度机械臂接入 MoveIt 2 的 ROS 2 包集合。
+
+**当前阶段**：第一阶段 —— 话题桥（`joint_state_topic_hardware_interface`）
+**后续计划**：第二阶段 —— 自写 action server 方案
+
+---
+
+## 包结构
+
+| 包 | 作用 |
+|---|---|
+| `onero_a1_description` | URDF / mesh / ros2_control 硬件配置 |
+| `onero_a1_bringup` | launch + 控制器配置 + **话题桥 Python 节点** |
+| `onero_a1_moveit_config` | SRDF / 运动学 / 限位 / OMPL / MoveIt 控制器映射 / RViz |
+
+### 依赖方向
+
+```
+onero_a1_moveit_config ──▶ onero_a1_bringup ──▶ onero_a1_description
+```
+
+---
+
+## 验证状态
+
+| 模式 | 验证内容 | 结果 |
+|---|---|---|
+| **1. 纯 MoveIt 模拟** | 硬件激活 / robot model / OMPL / 控制器 | ✅ |
+| | 参数命名空间（4 项 + 2 项反例） | ✅ |
+| | 关节限位实际生效（2.0 / 3.0，非 URDF 的 30） | ✅ |
+| | `arm` 组规划（20 点） | ✅ |
+| **2. 话题桥全链路** | 桥接节点独立测试（乱序映射 / 跟随 / NaN 防护） | ✅ |
+| | 直接给 JTC 发轨迹，7 关节零误差到位 | ✅ |
+| | **经 move_group 完整「规划 → 执行」** | ✅ |
+| | **看门狗：失联停用 + 恢复激活** | ✅ |
+| **3. 真机** | — | ⏳ 待硬件 |
+
+> 验收命令：
+> ```bash
+> source setup_env.sh
+> ros2 launch onero_a1_moveit_config demo.launch.py rviz:=false use_fake_hardware:=false simulate:=true &
+> python3 tools/test_moveit_e2e.py joint1-a1_r 0.4
+> ```
+> 期望输出：`error_code = 1`、`规划轨迹点数 ≈ 20`、关节实际到位（误差 < 0.05 rad）。
+
+---
+
+## 环境准备
+
+```bash
+sudo apt install -y \
+  ros-jazzy-moveit \
+  ros-jazzy-ros2-control \
+  ros-jazzy-ros2-controllers \
+  ros-jazzy-ros2controlcli \
+  ros-jazzy-joint-state-topic-hardware-interface   # ← 话题桥插件（必需）
+```
+
+> ⚠️ **本容器环境的两个坑**（普通环境可忽略）：
+> 1. `$HOME` 与 `/opt/ros` 为只读，`ros2 launch` 默认要写 `~/.ros/log` 会直接失败。
+>    用 `source setup_env.sh` 可规避（把 `ROS_HOME` 指到工作区内）。
+> 2. 无 X 显示，RViz 起不来。加 `rviz:=false`，或换有图形界面的机器。
+
+---
+
+## 编译
+
+```bash
+source setup_env.sh
+colcon build --symlink-install
+source install/setup.bash
+```
+
+---
+
+## 运行：三种模式
+
+| 模式 | 命令 | 说明 |
+|---|---|---|
+| **1. 纯 MoveIt 模拟** | `ros2 launch onero_a1_moveit_config demo.launch.py rviz:=false` | 不涉及 armsdk，验证 MoveIt 配置 |
+| **2. 全链路联调** ★ | `... demo.launch.py rviz:=false use_fake_hardware:=false simulate:=true` | 走完整话题桥，但不连真机 |
+| **3. 真机** | `... demo.launch.py use_fake_hardware:=false simulate:=false can_channel:=can0` | 需先使能电机 |
+
+**建议顺序**：先 1 确认 MoveIt 配置对，再 2 确认桥接链路通，最后 3 上真机。
+
+---
+
+## 数据流（模式 2/3）
+
+```
+move_group
+   │  FollowJointTrajectory action
+   ▼
+arm_controller (joint_trajectory_controller)
+   │  命令接口：position
+   ▼
+joint_state_topic_hardware_interface
+   │  /robot_joint_commands  (sensor_msgs/JointState)
+   ▼
+onero_topic_bridge  ← 本项目的适配层，200Hz 控制循环
+   │  armsdk CanBackend.command()  →  CAN →  电机
+   │
+   │  /robot_joint_states    (sensor_msgs/JointState)
+   ▲
+joint_state_topic_hardware_interface  →  arm_controller  →  move_group
+
+         ┌──────────────────────────┐
+         │ onero_bridge_watchdog    │  ← 旁路监控
+         │ 订阅 /robot_joint_states  │     失联则停用 arm_controller
+         └──────────────────────────┘
+```
+
+---
+
+## ⚠️ 重要：URDF / SRDF 是自动生成的，不要手改
+
+`onero_a1_description/urdf/onero_a1_body.urdf` 与
+`onero_a1_moveit_config/config/onero_a1.srdf` 都由脚本从 **armsdk 的权威文件**生成。
+
+**原因**：曾经出现过手抄 URDF 导致关节坐标系漂移（末端恒定偏差 19.76 mm、
+Link3–Link6 坐标系整体差 180°）的事故，且**不会报错**，极难排查。
+
+### 重新生成
+
+```bash
+# 机器人本体（只改 mesh 路径 / robot name，几何身份带自校验）
+python3 tools/sync_description_from_sdk.py \
+    --sdk-urdf /path/to/armsdk/onero_sdk/urdf/A1/a1_r.urdf \
+    --out      src/onero_a1_description/urdf/onero_a1_body.urdf
+
+# SRDF（碰撞矩阵照搬 SDK，追加 planning group / 命名位姿 / virtual joint）
+python3 tools/sync_srdf_from_sdk.py \
+    --sdk-srdf /path/to/armsdk/onero_sdk/urdf/A1/a1_r.srdf \
+    --out      src/onero_a1_moveit_config/config/onero_a1.srdf
+```
+
+生成脚本会**自校验**：若 origin / axis / limit / parent / child 有任何改动，
+立即中止且不写文件。
+
+---
+
+## ⚠️ 参数命名空间速查
+
+MoveIt 2 的参数**不都是平铺的**。放错位置往往**不报错，只是静默失效**。
+本项目用 `MoveItConfigsBuilder` 自动拼装，避免手工出错。最终参数路径为：
+
+| 内容 | 参数路径 |
+|---|---|
+| IK 配置 | `robot_description_kinematics.arm.*` |
+| 关节限位 | `robot_description_planning.joint_limits.<关节>.*` |
+| 规划管线 | `planning_pipelines` + `ompl.*` |
+| 控制器映射 | `moveit_simple_controller_manager.*` |
+
+### 验收命令
+
+```bash
+ros2 param get /move_group robot_description_kinematics.arm.kinematics_solver
+ros2 param get /move_group robot_description_planning.joint_limits.joint1-a1_r.max_velocity
+ros2 param get /move_group ompl.planning_plugins
+```
+
+期望：分别返回 `kdl_kinematics_plugin/KDLKinematicsPlugin`、`2.0`、`['ompl_interface/OMPLPlanner']`。
+
+> **特别提醒**：`joint_limits.yaml` 若未包在 `robot_description_planning` 下，
+> 限位会失效，MoveIt 将使用 URDF 里的 `velocity="30.0"`
+> —— 那是 SolidWorks 导出的占位符，真机上限只有 3–6 rad/s。**这是安全隐患。**
+
+---
+
+## 话题桥节点参数
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `simulate` | `true` | true 不连硬件（一阶跟随模拟）；false 连真机 CAN |
+| `joint_commands_topic` | `/robot_joint_commands` | 命令订阅 |
+| `joint_states_topic` | `/robot_joint_states` | 状态发布 |
+| `control_rate` | `200.0` | 控制循环频率 Hz |
+| `state_publish_rate` | `100.0` | 状态发布频率 Hz |
+| `can_channel` | `can0` | SocketCAN 接口（simulate=false 时） |
+| `model` | `A1R` | armsdk 模型名 |
+| `kp` / `kd` | `50.0` / `1.0` | MIT 阻抗增益 |
+
+> **kp/kd 说明**：MoveIt 的 `FollowJointTrajectory` 协议里**没有增益字段**，
+> 所以 kp/kd 只能通过 ROS 参数传入（非逐周期可变）。
+> 若将来需要逐周期动态调阻抗，需改为自定义接口（见选型文档）。
+
+---
+
+## 🔒 安全设计
+
+### 问题：硬件接口不校验状态时间戳
+
+`joint_state_topic_hardware_interface` 的 `read()` 只是把**最近收到的**状态抄进
+状态接口，**没有任何时间戳校验**：
+
+```cpp
+joint_states_[POSITION_INTERFACE_INDEX][j] = latest_joint_state_.position[i];
+```
+
+**后果**：若话题桥节点崩溃或卡死，硬件接口会永远返回最后一帧状态，
+MoveIt 会认为「机械臂静止、一切正常」，继续规划并下发轨迹。
+
+### 三层防护
+
+| 层 | 组件 | 职责 |
+|---|---|---|
+| **1. 参数校验** | `topic_bridge` | 启动时校验 `on_fault_action` 等参数，配置写错立即失败 |
+| **2. CAN 健康** | `topic_bridge` | 接入 SDK 的 `on_miss` / `on_fault` 回调，感知丢帧与电机故障 |
+| **3. 外部看门狗** | `health_watchdog` | 监控状态话题新鲜度，失联时**停用 `arm_controller`** |
+
+### 看门狗行为
+
+```
+状态话题新鲜        -> 控制器 active
+状态超时(默认 1.0s) -> 记录 ERROR + 停用 arm_controller  -> MoveIt 无法再下发轨迹
+状态恢复            -> 自动重新激活 arm_controller
+```
+
+由 launch 参数控制：`watchdog_timeout`（默认 1.0）、`watchdog_auto_deactivate`（默认 true）。
+
+### 电机故障处置（`on_fault_action`）
+
+| 取值 | 行为 | 适用 |
+|---|---|---|
+| `log` | 仅记录（**默认**） | 首次调试，观察为主 |
+| `hold` | 冻结目标，保持当前位置，忽略后续轨迹 | 大多数生产场景 |
+| `disable` | 断使能电机 | ⚠️ **带载且无支撑时会掉落**，谨慎使用 |
+
+> **本方案不能替代硬件安全链。** 完整的机械臂安全设计应包含：
+> 驱动器过流/过温保护、物理急停按钮、机械限位、以及安全-rated 的控制架构。
+> 软件看门狗只能覆盖「通信中断」这一类故障。
+
+---
+
+## 测试工具
+
+```bash
+# 1) 话题桥节点独立测试（含 NaN 防护回归测试，不需要 ros2_control）
+ros2 run onero_a1_bringup topic_bridge --ros-args -p simulate:=true &
+python3 tools/test_bridge.py
+
+# 2) 执行层测试：直接给 arm_controller 发轨迹
+python3 tools/test_execution.py
+
+# 3) 最终验收：经 move_group 走完整「规划 → 执行」
+python3 tools/test_moveit_e2e.py joint1-a1_r 0.4
+
+# 4) 链路诊断：手动注入命令，逐段判断在哪一环断掉
+python3 tools/diag_chain.py
+
+# 5) MoveIt 规划链路测试
+python3 tools/test_plan.py arm joint1-a1_r 0.5
+
+# 6) 看门狗端到端验证：杀掉桥接 → 确认控制器停用 → 重启 → 确认自动恢复
+bash tools/test_watchdog.sh
+```
+
+---
+
+## ⚠️ 调试记录：两个已修复的隐蔽 bug
+
+这两个问题都**不报错**，只是行为不对，值得记录以免重犯。
+
+### bug 1：状态话题 QoS 不兼容
+
+**现象**：`ros2 topic echo /robot_joint_states` 收不到消息，
+但订阅它的硬件插件却工作正常。
+
+**原因**：桥接节点用 `BEST_EFFORT` 发布状态（为了匹配硬件插件的
+`SensorDataQoS`）。但 BEST_EFFORT 发布者**无法被默认的 RELIABLE 订阅者接收**。
+
+**修复**：改为 `RELIABLE` 发布。RELIABLE 发布者可兼容 RELIABLE 和
+BEST_EFFORT 两种订阅者，是严格更优的选择。
+
+### bug 2：NaN 沿链路传播（安全问题）
+
+**现象**：JTC 报告执行成功（`error_code=0`、有 feedback），
+但关节位置始终不动，`/robot_joint_states` 全是 NaN。
+
+**根因**：`hardware_interface/handle.hpp` 中：
+
+```cpp
+value_ = initial_value.empty() ? std::numeric_limits<double>::quiet_NaN() : ...
+```
+
+**没有 `initial_value` 的接口会被初始化为 NaN。** 控制器认领命令接口之前，
+`/robot_joint_commands` 里会短暂出现 NaN；桥接节点把它写进状态后，
+**NaN 与任何数运算仍是 NaN，从此永久传播、无法自愈**。
+
+更严重的是：真机上这会把 NaN 位置下发给 `CanBackend.command()`。
+
+**修复（两层防护）**：
+
+1. `topic_bridge.py`：拒绝非有限值（`math.isfinite` 检查）、
+   状态被污染时自动恢复、发布前再做一次兜底过滤
+2. `onero_a1.ros2_control.xacro`：所有接口（含 `command_interface`）
+   显式声明 `initial_value`，从源头避免 NaN
+
+`tools/test_bridge.py` 第 5 步是该问题的回归测试。
+
+---
+
+## 已知限制
+
+- **RViz 可用** ✅ —— 已验证，见 `docs/screenshots/demo_rviz.png`。
+  （此前记为"不可用"是误判：AI 工具沙箱的 `/tmp` 是独立 tmpfs，
+  遮住了宿主机的 `/tmp/.X11-unix/X1`。你在自己的终端里直接运行即可。）
+- `update_rate` 固定 100Hz；话题桥每周期有 2 次跨进程通信，实测抖动后方可上调
+- 状态看门狗已实现（`health_watchdog`），但**不能替代硬件急停**
+- 仅暴露 `position` 命令接口；力矩/阻抗需另行设计
+- `kp` / `kd` 目前只能通过启动参数设置，运行中不可调
+
+## 相关文档
+
+| 文档 | 内容 |
+|---|---|
+| `docs/真机接入检查清单.md` | 上真机前的逐项确认（环境、硬件、分步验证、安全） |
+| `docs/screenshots/demo_rviz.png` | RViz 完整 demo 界面截图 |

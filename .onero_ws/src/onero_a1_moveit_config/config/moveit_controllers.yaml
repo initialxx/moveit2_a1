@@ -1,0 +1,33 @@
+# MoveIt 控制器管理器配置（给 move_group 节点读）
+#
+# 注意与 bringup 包里的 config/ros2_controllers.yaml 区分：
+#   * 本文件      -> move_group 读：action 命名空间映射、控制器管理
+#   * ros2_controllers.yaml -> controller_manager 读：控制器类型、关节、接口
+#
+# action_ns 是【相对命名空间】，MoveIt 会拼成 <controller_name>/<action_ns>，
+# 即 /arm_controller/follow_joint_trajectory。不要写成绝对路径。
+
+trajectory_execution:
+  allowed_execution_duration_scaling: 1.2
+  allowed_goal_duration_margin: 0.5
+  allowed_start_tolerance: 0.01
+  execution_duration_monitoring: true
+
+moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
+
+moveit_simple_controller_manager:
+  controller_names:
+    - arm_controller
+
+  arm_controller:
+    action_ns: follow_joint_trajectory
+    type: FollowJointTrajectory
+    default: true
+    joints:
+      - joint1-a1_r
+      - joint2-a1_r
+      - joint3-a1_r
+      - joint4-a1_r
+      - joint5-a1_r
+      - joint6-a1_r
+      - joint7-a1_r

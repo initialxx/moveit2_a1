@@ -1,0 +1,35 @@
+# ros2_control 控制器配置 —— 由 controller_manager 读取
+#
+# 注意：这个文件与 moveit_controllers.yaml 是【两个不同的东西】
+#   * 本文件      -> 给 controller_manager 节点读（控制器类型、关节、接口）
+#   * moveit_controllers.yaml -> 给 move_group 节点读（action 命名空间映射）
+
+controller_manager:
+  ros__parameters:
+    # 更新频率。话题桥每个周期有跨进程通信开销，
+    # 100Hz 稳妥；若实测抖动过大可降到 50Hz。
+    update_rate: 100  # Hz
+
+    arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+
+arm_controller:
+  ros__parameters:
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    joints:
+      - joint1-a1_r
+      - joint2-a1_r
+      - joint3-a1_r
+      - joint4-a1_r
+      - joint5-a1_r
+      - joint6-a1_r
+      - joint7-a1_r
+    allow_nonzero_velocity_at_trajectory_end: true

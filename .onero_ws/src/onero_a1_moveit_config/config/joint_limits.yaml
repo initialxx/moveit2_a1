@@ -1,0 +1,50 @@
+# 规划用关节限位（覆盖 URDF 中的值）
+#
+# 注意：本文件顶层是 joint_limits，MoveItConfigsBuilder.joint_limits()
+#      会把它包在 robot_description_planning 下，最终参数路径为：
+#          robot_description_planning.joint_limits.<关节>.max_velocity
+#      若少了这一层，限位会【静默失效】，MoveIt 将采用 URDF 里的
+#      velocity="30.0"（那个值是 SolidWorks 导出时的占位符，并非真实上限）。
+#      —— 这是安全隐患，务必确认本文件被正确加载。
+#
+# 取值依据：
+#   armsdk 中 model_registry._CAN_CONFIG["A1"]["joint_velocity_limits"]
+#   给出的硬件真实上限为 [3, 3, 3, 3, 6, 6, 6] rad/s（J1-J4 用 DM4340，J5-J7 用 DM4310）。
+#   规划限位取约 2/3，留出安全余量；加速度为工程经验值，可按实测调整。
+
+joint_limits:
+  joint1-a1_r:
+    has_velocity_limits: true
+    max_velocity: 2.0
+    has_acceleration_limits: true
+    max_acceleration: 4.0
+  joint2-a1_r:
+    has_velocity_limits: true
+    max_velocity: 2.0
+    has_acceleration_limits: true
+    max_acceleration: 4.0
+  joint3-a1_r:
+    has_velocity_limits: true
+    max_velocity: 2.0
+    has_acceleration_limits: true
+    max_acceleration: 4.0
+  joint4-a1_r:
+    has_velocity_limits: true
+    max_velocity: 2.0
+    has_acceleration_limits: true
+    max_acceleration: 4.0
+  joint5-a1_r:
+    has_velocity_limits: true
+    max_velocity: 3.0
+    has_acceleration_limits: true
+    max_acceleration: 6.0
+  joint6-a1_r:
+    has_velocity_limits: true
+    max_velocity: 3.0
+    has_acceleration_limits: true
+    max_acceleration: 6.0
+  joint7-a1_r:
+    has_velocity_limits: true
+    max_velocity: 3.0
+    has_acceleration_limits: true
+    max_acceleration: 6.0

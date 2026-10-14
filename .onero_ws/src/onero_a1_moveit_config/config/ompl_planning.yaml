@@ -1,0 +1,39 @@
+# OMPL 规划管线配置
+#
+# 注意：本文件内容会被 MoveItConfigsBuilder.planning_pipelines() 包在
+#      【管线名】下（此处为 ompl），最终参数路径为：
+#          ompl.planning_plugins / ompl.arm.default_planner_config ...
+#      若平铺加载，PlanningPipeline 会因 planning_plugins 为空而抛异常。
+#
+# planner_configs 故意不在此处声明 —— builder 会自动从
+# moveit_configs_utils/default_configs/ompl_defaults.yaml 补齐
+# （RRTConnect / RRTstar / PRM / EST / LBKPIECE / AnytimePathShortening 等）。
+
+planning_plugins:
+  - ompl_interface/OMPLPlanner
+
+# 请求适配器按顺序作用于每个规划请求
+request_adapters:
+  - default_planning_request_adapters/ResolveConstraintFrames
+  - default_planning_request_adapters/ValidateWorkspaceBounds
+  - default_planning_request_adapters/CheckStartStateBounds
+  - default_planning_request_adapters/CheckStartStateCollision
+
+# 响应适配器作用于规划结果；AddTimeOptimalParameterization 负责时间参数化
+response_adapters:
+  - default_planning_response_adapters/AddTimeOptimalParameterization
+  - default_planning_response_adapters/ValidateSolution
+  - default_planning_response_adapters/DisplayMotionPath
+
+arm:
+  default_planner_config: RRTConnect
+  planner_configs:
+    - RRTConnect
+    - RRTstar
+    - PRM
+    - EST
+    - LBKPIECE
+    - BiTRRT
+    - AnytimePathShortening
+  projection_evaluator: joints(joint1-a1_r,joint2-a1_r)
+  longest_valid_segment_fraction: 0.005

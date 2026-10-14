@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<!--
+  Onero A1 机器人描述（ROS 2 顶层入口）
+
+  重要：机器人本体（连杆/关节/几何）由 tools/sync_description_from_sdk.py
+        从 armsdk 的权威 URDF 自动生成，请勿手工编辑 onero_a1_body.urdf。
+        需要更新时重新运行该脚本。
+
+  用法示例：
+    xacro onero_a1.urdf.xacro use_fake_hardware:=true
+    xacro onero_a1.urdf.xacro use_fake_hardware:=false \
+          joint_commands_topic:=/robot_joint_commands \
+          joint_states_topic:=/robot_joint_states
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="onero_a1">
+
+  <!-- ─── 可配置参数 ─────────────────────────────────────────────── -->
+
+  <!-- true  = 纯模拟（mock_components），MoveIt 可规划但无外部进程
+       false = 经 topic_based_ros2_control 桥接到真实/仿真的 Python 驱动节点 -->
+  <xacro:arg name="use_fake_hardware" default="true"/>
+
+  <!-- topic 桥的两个话题名（仅 use_fake_hardware:=false 时生效） -->
+  <xacro:arg name="joint_commands_topic" default="/robot_joint_commands"/>
+  <xacro:arg name="joint_states_topic"   default="/robot_joint_states"/>
+
+  <!-- ─── 机器人本体（自动生成，勿手改）──────────────────────────── -->
+  <xacro:include filename="onero_a1_body.urdf"/>
+
+  <!-- ─── ros2_control 硬件配置 ──────────────────────────────────── -->
+  <xacro:include filename="onero_a1.ros2_control.xacro"/>
+
+  <xacro:onero_a1_ros2_control
+      name="onero_a1"
+      use_fake_hardware="$(arg use_fake_hardware)"
+      joint_commands_topic="$(arg joint_commands_topic)"
+      joint_states_topic="$(arg joint_states_topic)"/>
+
+</robot>

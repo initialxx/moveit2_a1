@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Onero A1 语义机器人描述（SRDF）—— 自动生成，请勿手工编辑
+
+  生成方式: tools/sync_srdf_from_sdk.py
+  碰撞矩阵来源: armsdk/onero_sdk/urdf/A1/a1_r.srdf（权威）
+  追加内容: planning group / 命名位姿 / virtual joint
+-->
+<robot name="onero_a1">
+  <group name="arm">
+    <chain base_link="base_link" tip_link="Link7" />
+  </group>
+  <group_state name="home" group="arm">
+    <joint name="joint1-a1_r" value="0.0" />
+    <joint name="joint2-a1_r" value="0.0" />
+    <joint name="joint3-a1_r" value="0.0" />
+    <joint name="joint4-a1_r" value="0.0" />
+    <joint name="joint5-a1_r" value="0.0" />
+    <joint name="joint6-a1_r" value="0.0" />
+    <joint name="joint7-a1_r" value="0.0" />
+  </group_state>
+  <group_state name="ready" group="arm">
+    <joint name="joint1-a1_r" value="0.0" />
+    <joint name="joint2-a1_r" value="-1.0" />
+    <joint name="joint3-a1_r" value="0.0" />
+    <joint name="joint4-a1_r" value="-1.5" />
+    <joint name="joint5-a1_r" value="0.0" />
+    <joint name="joint6-a1_r" value="0.5" />
+    <joint name="joint7-a1_r" value="0.0" />
+  </group_state>
+  <virtual_joint name="world_joint" type="fixed" parent_frame="world" child_link="base_link" />
+  <disable_collisions link1="Link1" link2="Link2" reason="Adjacent" />
+  <disable_collisions link1="Link1" link2="Link3" reason="Never" />
+  <disable_collisions link1="Link1" link2="Link4" reason="Never" />
+  <disable_collisions link1="Link1" link2="Link5" reason="Never" />
+  <disable_collisions link1="Link1" link2="Link6" reason="Never" />
+  <disable_collisions link1="Link1" link2="Link7" reason="Never" />
+  <disable_collisions link1="Link1" link2="base_link" reason="Adjacent" />
+  <disable_collisions link1="Link2" link2="Link3" reason="Adjacent" />
+  <disable_collisions link1="Link2" link2="Link4" reason="Never" />
+  <disable_collisions link1="Link2" link2="Link5" reason="Never" />
+  <disable_collisions link1="Link2" link2="Link6" reason="Never" />
+  <disable_collisions link1="Link2" link2="Link7" reason="Never" />
+  <disable_collisions link1="Link2" link2="base_link" reason="Never" />
+  <disable_collisions link1="Link3" link2="Link4" reason="Adjacent" />
+  <disable_collisions link1="Link3" link2="Link5" reason="Never" />
+  <disable_collisions link1="Link3" link2="Link6" reason="Never" />
+  <disable_collisions link1="Link3" link2="Link7" reason="Never" />
+  <disable_collisions link1="Link3" link2="base_link" reason="Never" />
+  <disable_collisions link1="Link4" link2="Link5" reason="Adjacent" />
+  <disable_collisions link1="Link4" link2="Link6" reason="Never" />
+  <disable_collisions link1="Link4" link2="Link7" reason="Never" />
+  <disable_collisions link1="Link4" link2="base_link" reason="Never" />
+  <disable_collisions link1="Link5" link2="Link6" reason="Adjacent" />
+  <disable_collisions link1="Link5" link2="Link7" reason="Never" />
+  <disable_collisions link1="Link5" link2="base_link" reason="Never" />
+  <disable_collisions link1="Link6" link2="Link7" reason="Adjacent" />
+  <disable_collisions link1="Link6" link2="base_link" reason="Never" />
+  <disable_collisions link1="Link7" link2="base_link" reason="Never" />
+</robot>
