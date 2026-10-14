@@ -207,8 +207,25 @@ MoveIt 2 是**平台**，厂商驱动是**插件/消费者**，两者是**依赖
 | 文档 | 内容 |
 |---|---|
 | `.onero_ws/README.md` | 主文档：包结构、三种运行模式、数据流、安全设计、两个隐蔽 bug 的调试记录 |
+| `.notes/两套实现对比与合并建议.md` | ★ **armsdk/ros2 与 .onero_ws 两套实现的完整对比**（含实测证据与合并动作清单） |
 | `.onero_ws/docs/真机接入检查清单.md` | 上真机前的逐项确认 |
 | `.notes/onero-moveit2-adapter-comparison.md` | 自写 action server vs 话题桥 的对比 |
 | `.notes/onero-moveit2-adapter-comparison-techappendix.md` | 上文的详细技术附录 |
 | `.notes/onero-moveit2-integration-guide.md` | 接入指南 |
 | `.research/REPORT_vendor_ros2_moveit2_integration.md` | 上游政策调研完整报告（含原始片段与 verified/inferred 标注） |
+
+---
+
+## 八、重要补充：armsdk 仓库里已有一套 ROS 2 集成
+
+调研中发现 `/home/initialxx/project/armsdk/ros2/` 下存在**另一套** ROS 2 集成
+（`onero_ros2` + `onero_moveit_config`，2026-06 提交），选的是**自写 action server** 路线。
+
+它与本工作区的关系、实测缺陷与合并建议，见 **`.notes/两套实现对比与合并建议.md`**。
+
+要点：
+- 它放弃 ros2_control 的理由是「pluginlib 不支持 Python 插件」——**事实正确但不构成死路**，
+  本工作区用「官方 C++ 话题插件 + Python 话题节点」绕开了它
+- 它的 MoveIt 启动脚本实测**有两个独立的致命阻断点，从未跑通**
+- 它的 SRDF 缺 18 条碰撞排除 → 实测 **14% 的合法位形被误判为自碰撞**
+- 建议：**以 `.onero_ws` 为骨架**，只从它移植 3 个价值点（重力补偿前馈 / enable-disable 服务 / IK 超时 0.2s）
