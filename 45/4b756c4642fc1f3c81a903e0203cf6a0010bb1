@@ -1,0 +1,20 @@
+.onero_ws/setup_env.sh
+  h_3ce05673bb5060 33-50,61
+.onero_ws/src/onero_a1_bringup/onero_a1_bringup/health_watchdog.py
+  h_3ce05673bb5060 98-105,121,123-139
+.onero_ws/tools/arm_disable.py
+  h_3ce05673bb5060 1-96
+.onero_ws/tools/test_enable_hold.py
+  h_3ce05673bb5060 1-223
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "454b756c4642fc1f3c81a903e0203cf6a0010bb1",
+  "prompts": {},
+  "humans": {
+    "h_3ce05673bb5060": {
+      "author": "yangxiao <yangxiao@wondertechlabs.com>"
+    }
+  }
+}
