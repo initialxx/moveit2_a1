@@ -37,6 +37,10 @@ onero_a1_moveit_config ──▶ onero_a1_bringup ──▶ onero_a1_description
 | | **看门狗：失联停用 + 恢复激活** | ✅ |
 | **3. 真机** | — | ⏳ 待硬件 |
 
+> **工作区迁移后已复验（2026-10-14）**：迁移会导致 `build/` `install/` 中的绝对路径失效，
+> 已清理重编（3 包）并重跑端到端 —— `error_code = 1`、轨迹 21 点、到位误差 0.0193 rad ✓。
+> 一键复验：`bash tools/verify_workspace.sh joint1-a1_r 0.4`
+
 > 验收命令：
 > ```bash
 > source setup_env.sh
@@ -255,7 +259,17 @@ python3 tools/test_plan.py arm joint1-a1_r 0.5
 
 # 6) 看门狗端到端验证：杀掉桥接 → 确认控制器停用 → 重启 → 确认自动恢复
 bash tools/test_watchdog.sh
+
+# 7) 一键复验（启动全链路 + 端到端测试 + 自动收尾）
+bash tools/verify_workspace.sh joint1-a1_r 0.4
 ```
+
+> ⚠️ **工具脚本的两条硬性约束**（都踩过，见 `.notes/session-handover.md` 第六节）：
+> 1. **不要用 `set -u`** —— ROS 的 `setup.bash` 会引用未绑定变量并直接中止，
+>    表现为"脚本无任何输出、退出码 127"。
+> 2. **`pkill -f` 别在调用方命令行里留下字面量** —— 例如 `bash -c '... topic_bridge ...'`
+>    会被 `pkill -f "[t]opic_bridge"` 连坐杀死（退出码 143）。
+>    把流程写进脚本文件即可规避。
 
 ---
 
