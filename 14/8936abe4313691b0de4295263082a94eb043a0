@@ -1,0 +1,24 @@
+.notes/两套实现对比与合并建议.md
+  h_3ce05673bb5060 275,293
+.onero_ws/README.md
+  h_3ce05673bb5060 188-221
+.onero_ws/src/onero_a1_bringup/onero_a1_bringup/topic_bridge.py
+  h_3ce05673bb5060 36,74-85,121-129,134,140-143,174-183,236,242-389,448-451,484-485,487-489,496
+.onero_ws/src/onero_a1_bringup/package.xml
+  h_3ce05673bb5060 32
+.onero_ws/tools/exp_ik_timeout.py
+  h_3ce05673bb5060 1-150
+.onero_ws/tools/exp_ik_timeout.sh
+  h_3ce05673bb5060 1-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "148936abe4313691b0de4295263082a94eb043a0",
+  "prompts": {},
+  "humans": {
+    "h_3ce05673bb5060": {
+      "author": "yangxiao <yangxiao@wondertechlabs.com>"
+    }
+  }
+}
