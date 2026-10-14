@@ -1,0 +1,18 @@
+.notes/session-handover.md
+  h_3ce05673bb5060 1-214
+.onero_ws/README.md
+  h_3ce05673bb5060 40-43,262-264,267-273
+.onero_ws/tools/verify_workspace.sh
+  h_3ce05673bb5060 1-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "882b212f67c979f0dc1ecd66a3cc355cbec4a866",
+  "prompts": {},
+  "humans": {
+    "h_3ce05673bb5060": {
+      "author": "yangxiao <yangxiao@wondertechlabs.com>"
+    }
+  }
+}
