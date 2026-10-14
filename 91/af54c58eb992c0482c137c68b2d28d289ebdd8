@@ -1,0 +1,96 @@
+.gitignore
+  h_3ce05673bb5060 1-41
+.notes/onero-moveit2-adapter-comparison-techappendix.md
+  h_3ce05673bb5060 1-736
+.notes/onero-moveit2-adapter-comparison.md
+  h_3ce05673bb5060 1-223
+.notes/onero-moveit2-integration-guide.md
+  h_3ce05673bb5060 1-778
+.onero_ws/README.md
+  h_3ce05673bb5060 1-320
+.onero_ws/docs/真机接入检查清单.md
+  h_3ce05673bb5060 1-285
+.onero_ws/setup_env.sh
+  h_3ce05673bb5060 1-49
+.onero_ws/src/onero_a1_bringup/config/ros2_controllers.yaml
+  h_3ce05673bb5060 1-35
+.onero_ws/src/onero_a1_bringup/launch/bringup.launch.py
+  h_3ce05673bb5060 1-202
+.onero_ws/src/onero_a1_bringup/onero_a1_bringup/__init__.py
+  h_3ce05673bb5060 1
+.onero_ws/src/onero_a1_bringup/onero_a1_bringup/health_watchdog.py
+  h_3ce05673bb5060 1-183
+.onero_ws/src/onero_a1_bringup/onero_a1_bringup/topic_bridge.py
+  h_3ce05673bb5060 1-400
+.onero_ws/src/onero_a1_bringup/package.xml
+  h_3ce05673bb5060 1-32
+.onero_ws/src/onero_a1_bringup/setup.cfg
+  h_3ce05673bb5060 1-4
+.onero_ws/src/onero_a1_bringup/setup.py
+  h_3ce05673bb5060 1-31
+.onero_ws/src/onero_a1_description/CMakeLists.txt
+  h_3ce05673bb5060 1-11
+.onero_ws/src/onero_a1_description/launch/display.launch.py
+  h_3ce05673bb5060 1-77
+.onero_ws/src/onero_a1_description/package.xml
+  h_3ce05673bb5060 1-32
+.onero_ws/src/onero_a1_description/rviz/display.rviz
+  h_3ce05673bb5060 1-114
+.onero_ws/src/onero_a1_description/urdf/onero_a1.ros2_control.xacro
+  h_3ce05673bb5060 1-79
+.onero_ws/src/onero_a1_description/urdf/onero_a1.urdf.xacro
+  h_3ce05673bb5060 1-39
+.onero_ws/src/onero_a1_description/urdf/onero_a1_body.urdf
+  h_3ce05673bb5060 1-228
+.onero_ws/src/onero_a1_moveit_config/CMakeLists.txt
+  h_3ce05673bb5060 1-11
+.onero_ws/src/onero_a1_moveit_config/config/joint_limits.yaml
+  h_3ce05673bb5060 1-50
+.onero_ws/src/onero_a1_moveit_config/config/kinematics.yaml
+  h_3ce05673bb5060 1-11
+.onero_ws/src/onero_a1_moveit_config/config/moveit_controllers.yaml
+  h_3ce05673bb5060 1-33
+.onero_ws/src/onero_a1_moveit_config/config/ompl_planning.yaml
+  h_3ce05673bb5060 1-39
+.onero_ws/src/onero_a1_moveit_config/config/onero_a1.srdf
+  h_3ce05673bb5060 1-60
+.onero_ws/src/onero_a1_moveit_config/launch/demo.launch.py
+  h_3ce05673bb5060 1-124
+.onero_ws/src/onero_a1_moveit_config/package.xml
+  h_3ce05673bb5060 1-37
+.onero_ws/src/onero_a1_moveit_config/rviz/moveit.rviz
+  h_3ce05673bb5060 1-180
+.onero_ws/tools/diag_chain.py
+  h_3ce05673bb5060 1-114
+.onero_ws/tools/sync_description_from_sdk.py
+  h_3ce05673bb5060 1-123
+.onero_ws/tools/sync_srdf_from_sdk.py
+  h_3ce05673bb5060 1-114
+.onero_ws/tools/test_bridge.py
+  h_3ce05673bb5060 1-142
+.onero_ws/tools/test_execution.py
+  h_3ce05673bb5060 1-165
+.onero_ws/tools/test_moveit_e2e.py
+  h_3ce05673bb5060 1-146
+.onero_ws/tools/test_plan.py
+  h_3ce05673bb5060 1-101
+.onero_ws/tools/test_watchdog.sh
+  h_3ce05673bb5060 1-58
+.research/REPORT_vendor_ros2_moveit2_integration.md
+  h_3ce05673bb5060 1-755
+.research/ghraw.py
+  h_3ce05673bb5060 1-26
+.research/ghtree.py
+  h_3ce05673bb5060 1-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "91af54c58eb992c0482c137c68b2d28d289ebdd8",
+  "prompts": {},
+  "humans": {
+    "h_3ce05673bb5060": {
+      "author": "yangxiao <yangxiao@wondertechlabs.com>"
+    }
+  }
+}
