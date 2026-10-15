@@ -8,7 +8,7 @@
     joint_trajectory_controller
         │  /robot_joint_commands   (sensor_msgs/JointState)   ← 订阅
         ▼
-    本节点 ──── 200Hz 控制循环 ────▶ armsdk CanBackend.command()  ──▶ CAN ──▶ 电机
+    本节点 ──── 200Hz 控制循环 ────▶ armsdk Arm.servoj()  ──▶ CAN ──▶ 电机
         │
         │  /robot_joint_states     (sensor_msgs/JointState)   → 发布
         ▼
@@ -25,6 +25,8 @@
 from __future__ import annotations
 
 import math
+import json
+from collections import deque
 import threading
 import time
 from typing import Optional
@@ -33,12 +35,24 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import JointState
+from std_msgs.msg import String
 from std_srvs.srv import Trigger
 
 DEFAULT_JOINT_NAMES = [
     "joint1-a1_r", "joint2-a1_r", "joint3-a1_r", "joint4-a1_r",
     "joint5-a1_r", "joint6-a1_r", "joint7-a1_r",
 ]
+
+
+def _trace_json_safe(value):
+    """Keep diagnostics serializable even when hardware feedback is invalid."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, list):
+        return [_trace_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _trace_json_safe(item) for key, item in value.items()}
+    return value
 
 
 class OneroTopicBridge(Node):
@@ -53,6 +67,7 @@ class OneroTopicBridge(Node):
         self.declare_parameter("joint_states_topic", "/robot_joint_states")
         self.declare_parameter("control_rate", 200.0)
         self.declare_parameter("state_publish_rate", 100.0)
+        self.declare_parameter("trace_control", False)
 
         # simulate=true 时不连硬件，用一阶跟随模拟机械臂（用于无真机联调）
         self.declare_parameter("simulate", True)
@@ -63,6 +78,8 @@ class OneroTopicBridge(Node):
         self.declare_parameter("model", "A1R")
         self.declare_parameter("kp", 50.0)
         self.declare_parameter("kd", 1.0)
+        self.declare_parameter("mounting", "upright")
+        self.declare_parameter("with_gripper", False)
 
         # CAN 健康与故障处置
         #   log     —— 仅记录（默认，最保守）
@@ -79,7 +96,7 @@ class OneroTopicBridge(Node):
 
         # 重力补偿前馈（可选，默认关）
         #   需要 onero-sdk 的 dynamics 依赖（pinocchio）。开启前请确认负载参数正确，
-        #   错误的力矩前馈会导致非预期运动。详见 _init_gravity_compensation()。
+        #   安装方向、夹爪标定和重力计算均由 SDK Arm 负责。
         self.declare_parameter("gravity_compensation", False)
         self.declare_parameter("max_gravity_torque", 15.0)
 
@@ -89,6 +106,8 @@ class OneroTopicBridge(Node):
         self._idx = {n: i for i, n in enumerate(self._joint_names)}
 
         self._control_rate = float(gp("control_rate").value)
+        if not math.isfinite(self._control_rate) or self._control_rate <= 0:
+            raise ValueError("control_rate 必须是有限正数")
         self._control_dt = 1.0 / self._control_rate
         self._publish_every = max(
             1, int(round(self._control_rate / float(gp("state_publish_rate").value)))
@@ -108,10 +127,17 @@ class OneroTopicBridge(Node):
 
         # ─── 状态（由控制线程写，锁内交换）────────────────────────────
         self._lock = threading.Lock()
+        self._hardware_lock = threading.RLock()
         self._cmd_pos = [0.0] * self._n          # 最新目标位置
         self._state_pos = [0.0] * self._n        # 当前关节位置
         self._state_vel = [0.0] * self._n        # 当前关节速度
         self._last_cmd_stamp: Optional[float] = None   # 收到命令的单调时刻
+        # Optional diagnosis: collect in the control thread, serialize/publish
+        # in the ROS executor so file I/O never runs in the CAN control loop.
+        self._trace_control = bool(gp("trace_control").value)
+        self._trace_queue = deque(maxlen=1000)
+        self._trace_dropped = 0
+        self._cycle_missed_joints = []
 
         # CAN 健康计数（仅真机模式会增长）
         self._can_misses = 0
@@ -123,15 +149,14 @@ class OneroTopicBridge(Node):
         self._enabled = True
         self._allow_disable = bool(gp("allow_disable_service").value)
 
-        # 重力补偿前馈（可选）
-        self._dynamics = None
+        # SDK 重力补偿（可选）
+        self._gravity_compensation = bool(gp("gravity_compensation").value)
         self._max_gravity_torque = abs(float(gp("max_gravity_torque").value))
 
         # ─── 硬件后端 ────────────────────────────────────────────────
         self._backend = None
         if not self._simulate:
             self._init_hardware()
-            self._init_gravity_compensation(gp("gravity_compensation").value)
         else:
             self.get_logger().warn(
                 "simulate=true —— 不连接硬件，用一阶跟随模拟机械臂。"
@@ -170,6 +195,12 @@ class OneroTopicBridge(Node):
         self._state_pub = self.create_publisher(
             JointState, gp("joint_states_topic").value, state_qos
         )
+        if self._trace_control:
+            self._trace_pub = self.create_publisher(
+                String, "~/control_trace",
+                QoSProfile(depth=100, reliability=ReliabilityPolicy.BEST_EFFORT),
+            )
+            self._trace_timer = self.create_timer(0.05, self._publish_control_trace)
 
         # ─── 使能 / 失能服务 ─────────────────────────────────────────
         # 只在真机模式创建：模拟模式下没有电机可使能，创建了反而误导。
@@ -199,145 +230,69 @@ class OneroTopicBridge(Node):
     # ─── 硬件初始化 ──────────────────────────────────────────────────
 
     def _init_hardware(self) -> None:
-        """连接 armsdk 的 CAN 后端。失败则抛异常，让节点启动失败（不静默降级）。"""
+        """Configure SDK Arm before enabling; fail if requested dynamics are unavailable."""
         try:
-            from onero_sdk.can_backend import CanBackend
-            from onero_sdk.model_registry import get_model
+            from .sdk_session import SDKArmSession
         except ImportError as e:
             raise RuntimeError(
-                "无法导入 onero_sdk。请先安装：pip install -e /path/to/armsdk"
+                "无法导入 onero_sdk。请 source setup_env.sh；"
+                "SDK 动力学环境可用 bash tools/install_sdk_runtime.sh 安装"
             ) from e
 
         gp = self.get_parameter
-        model_name = gp("model").value
-        channel = gp("can_channel").value
-
-        model = get_model(model_name)
-        if model.num_joints != self._n:
-            raise RuntimeError(
-                f"模型 {model_name} 有 {model.num_joints} 个关节，"
-                f"但 joint_names 参数给了 {self._n} 个"
-            )
-        self._model = model
+        model_name = str(gp("model").value)
+        channel = str(gp("can_channel").value)
         self._kp = float(gp("kp").value)
         self._kd = float(gp("kd").value)
+        if not (math.isfinite(self._kp) and 0.0 <= self._kp <= 500.0
+                and math.isfinite(self._kd) and 0.0 <= self._kd <= 5.0):
+            raise ValueError("kp/kd 超出 SDK MIT 编码范围")
 
-        # SDK 提供 on_miss / on_fault 回调，用于感知 CAN 链路健康
-        self._backend = CanBackend(
-            channel=channel,
-            joint_specs=model.joints,
-            recv_timeout=0.003,
-            on_miss=self._on_can_miss,
-            on_fault=self._on_can_fault,
-        )
-        state = self._backend.enable()
-        self._state_pos = list(state.joints)
-        self._cmd_pos = list(state.joints)
-        self._enabled = True
+        try:
+            self._backend = SDKArmSession(
+                model_name=model_name, channel=channel,
+                mounting=str(gp("mounting").value),
+                with_gripper=bool(gp("with_gripper").value),
+                gravity_compensation=self._gravity_compensation,
+                control_rate=self._control_rate,
+                max_gravity_torque=self._max_gravity_torque,
+                on_miss=self._on_can_miss, on_fault=self._on_can_fault,
+            )
+            self._model = self._backend.model
+            if self._model.num_joints != self._n:
+                raise ValueError("SDK 模型与 joint_names 关节数不匹配")
+            # SDK preflight above has not opened CAN or enabled any motors.
+            state = self._backend.enable()
+            self._state_pos = list(state.joints)
+            self._cmd_pos = list(state.joints)
+            self._enabled = True
+        except Exception:
+            if self._backend is not None:
+                self._backend.close(disable=False)
+            raise
+
         self.get_logger().info(
             f"已连接 CAN '{channel}' | 模型 {model_name} | 电机已使能 | "
-            f"故障处置={self._on_fault_action}"
+            f"SDK Arm.servoj | 故障处置={self._on_fault_action}"
         )
-
-    def _init_gravity_compensation(self, requested) -> None:
-        """按需启用重力矩前馈。失败一律**显式报错**，绝不静默降级。
-
-        背景：`armsdk/ros2` 里这段代码调用的是 `_find_urdf("A1R")`，
-        而该函数签名是 `_find_urdf(model_name, variant="r")` —— 传 "A1R" 会
-        去 glob `onero_sdk/urdf/A1R/*.urdf`（不存在）并返回 None，
-        于是 `if urdf_path:` 为假，**重力补偿永远不生效，且一行日志都不打**。
-        这里改用正确调用，并把每种失败都讲清楚。
-        """
-        if not requested:
-            return
-
-        try:
-            from onero_sdk.dynamics import DynamicsModel
-            from onero_sdk.model_registry import _find_urdf
-        except ImportError as e:
-            self.get_logger().error(
-                f"gravity_compensation=true 但无法导入 onero_sdk.dynamics（{e}）。"
-                "需要安装动力学可选依赖，通常是：pip install 'onero-sdk[dynamics]'"
-                "（依赖 pinocchio）。**力矩前馈未启用**，控制循环按零前馈运行。"
-            )
-            return
-
-        model_name = str(self.get_parameter("model").value).upper()
-        # 型号形如 A1R / A1L —— 拆成 ("A1", "r"/"l")，这才是 _find_urdf 的签名
-        # （# 直接传 "A1R" 会去 glob onero_sdk/urdf/A1R/ 并返回 None）
-        variant = model_name[-1].lower() if model_name[-1] in ("R", "L") else "r"
-        base = "A1" if model_name.startswith("A1") else model_name
-
-        try:
-            urdf = _find_urdf(base, variant)
-        except Exception as e:  # noqa: BLE001
-            self.get_logger().error(f"查找 URDF 失败：{e}。力矩前馈未启用。")
-            return
-
-        if urdf is None:
-            self.get_logger().error(
-                f"找不到模型 '{base}'（变体 '{variant}'）的 URDF，力矩前馈未启用。"
-                f"期望路径：onero_sdk/urdf/{base}/{base.lower()}_{variant}.urdf"
-            )
-            return
-
-        try:
-            self._dynamics = DynamicsModel(str(urdf))
-        except Exception as e:  # noqa: BLE001
-            self.get_logger().error(
-                f"初始化动力学模型失败（{type(e).__name__}: {e}）。力矩前馈未启用。"
-            )
-            return
-
         self.get_logger().info(
-            f"重力补偿已启用 | URDF {urdf} | 力矩上限 ±{self._max_gravity_torque:.1f} N·m"
+            f"SDK 安装={gp('mounting').value} | 原装夹爪={gp('with_gripper').value} "
+            f"| 重力补偿={self._gravity_compensation} "
+            f"| 夹爪标定系数={self._backend.arm.gravity_profile_scales} "
+            f"| 零位偏移={self._backend.offsets}"
         )
-
-    def _gravity_torques(self, positions: list[float]) -> list[float]:
-        """算重力矩前馈，带幅值钳制与失败降级。
-
-        钳制是安全网：错误的负载参数或模型会算出离谱力矩，
-        宁可退化成零前馈，也不要给电机灌一个错误的大力矩。
-        """
-        if self._dynamics is None:
-            return [0.0] * self._n
-        try:
-            tau = list(self._dynamics.gravity_torques(list(positions)))
-        except Exception as e:  # noqa: BLE001 — 控制循环不能因为前馈挂掉
-            self.get_logger().error(
-                f"重力矩计算失败，本周期按零前馈运行：{e}",
-                throttle_duration_sec=5.0,
-            )
-            return [0.0] * self._n
-
-        if len(tau) != self._n:
-            self.get_logger().error(
-                f"重力矩维度不符（{len(tau)} != {self._n}），本周期按零前馈运行",
-                throttle_duration_sec=5.0,
-            )
-            return [0.0] * self._n
-
-        out = []
-        for i, t in enumerate(tau):
-            if not math.isfinite(t):
-                out.append(0.0)
-                continue
-            if abs(t) > self._max_gravity_torque:
-                self.get_logger().warn(
-                    f"关节{i+1} 重力矩 {t:.2f} 超过上限 "
-                    f"{self._max_gravity_torque:.1f}，已钳制",
-                    throttle_duration_sec=5.0,
-                )
-                t = math.copysign(self._max_gravity_torque, t)
-            out.append(float(t))
-        return out
 
     # ─── 使能 / 失能 ─────────────────────────────────────────────────
 
     def _on_enable(self, _request, response):
         """重新使能电机。"""
+        if self._enabled:
+            response.success = True
+            response.message = "电机已经使能"
+            return response
         try:
-            state = self._backend.enable()
+            with self._hardware_lock:
+                state = self._backend.enable()
             with self._lock:
                 self._state_pos = list(state.joints)
                 self._cmd_pos = list(state.joints)   # 目标对齐当前位置，避免跳变
@@ -373,7 +328,8 @@ class OneroTopicBridge(Node):
         try:
             with self._lock:
                 self._enabled = False             # 控制循环随即停止下发
-            self._backend.disable()
+            with self._hardware_lock:
+                self._backend.disable()
             response.success = True
             response.message = "电机已断使能 —— 机械臂已卸力"
             self.get_logger().warn(
@@ -393,6 +349,8 @@ class OneroTopicBridge(Node):
         """CAN 帧丢失。偶尔丢帧正常，连续丢帧说明链路有问题。"""
         with self._lock:
             self._can_misses += 1
+            if self._trace_control:
+                self._cycle_missed_joints.append(joint_index)
         if consecutive == self._max_misses:
             self.get_logger().error(
                 f"关节 {joint_index + 1} 连续丢帧 {consecutive} 次 —— CAN 链路可能异常"
@@ -422,7 +380,10 @@ class OneroTopicBridge(Node):
                 "正在断使能电机 —— ⚠️ 若机械臂带载且无支撑，可能会掉落"
             )
             try:
-                self._backend.disable()
+                with self._hardware_lock:
+                    self._backend.disable()
+                with self._lock:
+                    self._enabled = False
             except Exception as e:  # noqa: BLE001
                 self.get_logger().error(f"断使能失败: {e}")
 
@@ -474,11 +435,21 @@ class OneroTopicBridge(Node):
     def _control_loop(self) -> None:
         cycle = 0
         next_t = time.monotonic()
+        previous_start = None
 
         while self._running:
+            cycle_start = time.monotonic()
+            ros_start_ns = self.get_clock().now().nanoseconds if self._trace_control else None
             # 1) 取最新目标
             with self._lock:
                 cmd = list(self._cmd_pos)
+                command_stamp = self._last_cmd_stamp
+                self._cycle_missed_joints = []
+
+            state = None
+            failure = None
+            applied = None
+            io_start = cycle_start
 
             # 2) 与硬件交互（真机 or 模拟）
             #    失能后不再下发命令 —— 电机已卸力，继续发没有意义，
@@ -488,22 +459,66 @@ class OneroTopicBridge(Node):
                     time.sleep(self._control_dt)
                     continue
                 try:
-                    state = self._backend.command(
-                        positions=cmd,
-                        velocities=[0.0] * self._n,
-                        kps=[self._kp] * self._n,
-                        kds=[self._kd] * self._n,
-                        torques=self._gravity_torques(cmd),
-                    )
+                    io_start = time.monotonic()
+                    with self._hardware_lock:
+                        if not self._enabled:
+                            continue
+                        state = self._backend.servoj(
+                            cmd, kp=self._kp, kd=self._kd, velocities=[0.0] * self._n
+                        )
+                        applied = self._backend.last_command
+                    io_end = time.monotonic()
                     with self._lock:
                         self._state_pos = list(state.joints)
                         self._state_vel = list(state.velocities)
                 except Exception as e:  # noqa: BLE001 — 控制循环不能死
+                    io_end = time.monotonic()
+                    failure = str(e)
+                    applied = self._backend.last_command
                     self.get_logger().error(
                         f"控制周期失败: {e}", throttle_duration_sec=1.0
                     )
             else:
                 self._step_simulation(cmd)
+                io_end = time.monotonic()
+
+            if self._trace_control:
+                with self._lock:
+                    if len(self._trace_queue) == self._trace_queue.maxlen:
+                        self._trace_dropped += 1
+                    self._trace_queue.append({
+                        "cycle": cycle,
+                        "ros_start_ns": ros_start_ns,
+                        "monotonic_start": cycle_start,
+                        "period_s": (cycle_start - previous_start)
+                        if previous_start is not None else None,
+                        "command_age_s": max(0.0, io_start - command_stamp)
+                        if command_stamp is not None else None,
+                        "io_s": io_end - io_start,  # SDK servo incl. gravity, limits and CAN I/O
+                        "joint_names": self._joint_names,
+                        "sdk_input_position": cmd,
+                        "command_position": applied["position"] if applied else (
+                            cmd if self._simulate else None),
+                        "raw_command_position": applied["raw_position"] if applied else None,
+                        "command_velocity": applied["velocity"] if applied else None,
+                        "command_torque_ff": applied["torque_ff"] if applied else None,
+                        "bridge_ff_limited": applied["bridge_ff_limited"] if applied else None,
+                        "gravity_compensation": self._gravity_compensation,
+                        "kp": getattr(self, "_kp", None),
+                        "kd": getattr(self, "_kd", None),
+                        "feedback_position": list(self._state_pos),
+                        "feedback_velocity": list(self._state_vel),
+                        "feedback_torque": list(state.torques) if state is not None else [],
+                        # Missing responses use cached feedback in CanBackend.
+                        # Do not treat that joint's values as fresh measurements.
+                        "missed_joint_indices": list(self._cycle_missed_joints),
+                        "can_misses_total": self._can_misses,
+                        "can_faults_total": self._can_faults,
+                        "trace_dropped_total": self._trace_dropped,
+                        "simulate": self._simulate,
+                        "exception": failure,
+                    })
+            previous_start = cycle_start
 
             # 3) 发布状态
             cycle += 1
@@ -518,6 +533,15 @@ class OneroTopicBridge(Node):
             else:
                 # 落后了就重置基准，避免雪崩式追赶
                 next_t = time.monotonic()
+
+    def _publish_control_trace(self) -> None:
+        with self._lock:
+            samples = list(self._trace_queue)
+            self._trace_queue.clear()
+        for sample in samples:
+            self._trace_pub.publish(String(data=json.dumps(
+                _trace_json_safe(sample), allow_nan=False
+            )))
 
     def _step_simulation(self, cmd: list[float]) -> None:
         """一阶跟随：state += (cmd - state) * dt / tau
@@ -572,7 +596,8 @@ class OneroTopicBridge(Node):
         if self._backend is not None:
             # 不自动 disable：带载的机械臂突然卸力会掉落
             try:
-                self._backend.close(disable=False)
+                with self._hardware_lock:
+                    self._backend.close(disable=False)
             except Exception:  # noqa: BLE001
                 pass
         return super().destroy_node()

@@ -48,6 +48,12 @@ else
   fi
 fi
 
+# Use the isolated SDK runtime only for the hardware bridge. Other ROS nodes
+# retain their existing Python environment; the SDK source path above is shared.
+if [ -x "${WS_DIR}/.venv-sdk/bin/python" ]; then
+  export ONERO_SDK_PYTHON="${ONERO_SDK_PYTHON:-${WS_DIR}/.venv-sdk/bin/python}"
+fi
+
 # 工作区 overlay
 if [ -f "${WS_DIR}/install/setup.bash" ]; then
   source "${WS_DIR}/install/setup.bash"

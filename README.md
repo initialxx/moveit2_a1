@@ -35,7 +35,12 @@ onero_a1_moveit_config ──▶ onero_a1_bringup ──▶ onero_a1_description
 | | 直接给 JTC 发轨迹，7 关节零误差到位 | ✅ |
 | | **经 move_group 完整「规划 → 执行」** | ✅ |
 | | **看门狗：失联停用 + 恢复激活** | ✅ |
-| **3. 真机** | — | ⏳ 待硬件 |
+| **3. 真机** | SDK `Arm.servoj()` + `humanoid_right` + 原装夹爪重力补偿，100Hz，速度/加速度缩放 0.05 | ✅ 单次轨迹执行成功，用户确认实物基本满足要求 |
+
+> **真机记录（2026-10-15 14:57）**：JTC 返回 `Goal successfully reached`，MoveIt 返回
+> `SUCCEEDED`。停稳后 joint1 误差约 0.03145 rad（1.80°），joint4 约 0.01044 rad（0.60°），
+> 全部关节满足当前 0.05 rad 到位容差。记录期间无新增 CAN 丢帧和控制异常。
+> 这代表本次姿态/轨迹验证通过，不代表所有工作空间姿态的精度已完成标定。
 
 > **工作区迁移后已复验（2026-10-14）**：迁移会导致 `build/` `install/` 中的绝对路径失效，
 > 已清理重编（3 包）并重跑端到端 —— `error_code = 1`、轨迹 21 点、到位误差 0.0193 rad ✓。
@@ -100,6 +105,75 @@ source install/setup.bash
 
 ---
 
+## 真机运动不到位：记录一次完整执行
+
+真机桥接现通过 SDK `Arm.servoj()` 执行；安装方向、夹爪标定和重力计算由 SDK 负责。
+本机已在 `.venv-sdk` 安装 SDK 动力学运行环境；迁移机器时运行
+`bash tools/install_sdk_runtime.sh`，再 `source setup_env.sh`。
+启动文件只为桥接节点选择这个 Python，不改变其他 ROS 节点的解释器。
+请求重力补偿时，会在打开 CAN/使能之前通过 SDK 公共接口检查依赖和模型，失败则退出。
+
+当前实物配置为 `humanoid_right`、原装 A1 夹爪、无额外负载。
+该安装在基座坐标中的重力为 `[-9.81, 0, 0]`，`world -> base_link`
+也使用同一 SDK 安装定义。`with_gripper` 选择 SDK 已有的原装夹爪标定系数，
+不虚构质量或质心。其他安装方式须传入对应的 `mounting`。
+
+JTC 在轨迹跟踪超差后会中止动作，并把当时实测位置设为保持目标。
+此后 `controller_state.reference` 和 `error` 都相对保持位置，不能据此判断
+机械臂是否接近原始规划终点。必须同时保留动作结果和原始规划轨迹。
+
+启动时开启可选的控制诊断（默认关闭）：
+
+```bash
+source setup_env.sh
+ros2 launch onero_a1_moveit_config demo.launch.py \
+  rviz:=true use_fake_hardware:=false simulate:=false \
+  can_channel:=slcan0 control_rate:=100 trace_control:=true \
+  mounting:=humanoid_right with_gripper:=true gravity_compensation:=true
+```
+
+另一终端在点击 RViz 的 **Plan & Execute** 前开始记录：
+
+```bash
+source setup_env.sh
+python3 tools/record_tracking.py
+```
+
+先确认运动全程没有桌面、支架接触或线缆拖拽。在 RViz 中把 Velocity Scaling
+和 Acceleration Scaling 都设为 `0.05`，只做一次小范围 Plan & Execute；
+动作结束（成功或失败）后再等 5 秒，在记录终端按 Ctrl-C。
+这个缩放值只用于降低诊断动作的速度和加速度，不是经过标定的安全限值。
+一次记录只执行一个目标，不要随后再次规划，以便原始目标与执行对应。
+
+记录保存在 `.logs/tracking/`（已被 Git 忽略）：
+
+- `*.jsonl`：全程控制器参考/反馈/输出、桥接输入、SDK 调用参数及返回反馈、
+  动作状态和结果、相关参数、WARN/ERROR 日志。
+- `*.summary.json`：原始 MoveGroup 规划终点与最新反馈的逐关节差值。
+  原始轨迹从只读 GetResult 服务取得；规划预览仅作辅助，不当成已执行的证明。
+
+记录工具只订阅话题和读取结果/参数，不发送目标，不使能电机，也不占用 CAN。
+`control_trace.sdk_input_position` 是 ROS 目标，`command_position` 是 SDK 限制后的
+目标（URDF 坐标），`raw_command_position` 是零位换算后交给 CAN 后端的位置。
+`command_torque_ff` 是 SDK 计算、限幅后的实际前馈。记录不是总线抓包或驱动器执行确认。
+SDK 无响应时会复用缓存反馈，需结合 `missed_joint_indices`、`exception` 判断有效性；
+`period_s` 为真实控制周期间隔，`io_s` 包含 SDK 补偿/限幅/CAN 调用耗时，
+`command_age_s` 为调用时命令年龄。
+`feedback_torque` 是 SDK 解码后的电机反馈，不应未经标定直接视为关节输出轴力矩。
+诊断样本在独立 ROS 回调中发布，不在 CAN 线程写文件；开启诊断仍会增加少量 CPU/DDS 开销。
+
+| 记录现象 | 下一步处理 |
+|---|---|
+| 命令年龄或周期间隔明显增大、频繁丢帧 | 排查控制线程调度、DDS 和 SLCAN 吞吐/排队；频率参数不等于实际频率 |
+| SDK 收到正确位置且反馈有效，低速后跟踪明显改善 | 检查规划速度/加速度与电机跟踪能力、期望速度传递和 PD 参数 |
+| 低速仍有稳定关节偏差 | 检查驱动器限矩、增益、负载与重力补偿；补偿前确认安装姿态和夹爪质量/质心 |
+| 动作成功、相对原始终点的关节误差小，但物理末端偏差大 | 检查 URDF 零位、基座坐标和夹爪 TCP 标定 |
+
+保持现有轨迹容差和到位容差，先定位造成超差的环节，再做单项调整。
+位置模式本身并不等于故障；期望速度固定为零是需评估的因素，不能凭此断言根因。
+
+---
+
 ## 数据流（模式 2/3）
 
 ```
@@ -112,8 +186,8 @@ arm_controller (joint_trajectory_controller)
 joint_state_topic_hardware_interface
    │  /robot_joint_commands  (sensor_msgs/JointState)
    ▼
-onero_topic_bridge  ← 本项目的适配层，200Hz 控制循环
-   │  armsdk CanBackend.command()  →  CAN →  电机
+onero_topic_bridge  ← 本项目的适配层，可配置控制频率
+   │  SDK Arm.servoj() → SDK 补偿/限幅/零位换算 → CanBackend → CAN → 电机
    │
    │  /robot_joint_states    (sensor_msgs/JointState)
    ▲

@@ -44,17 +44,23 @@
 
       <!-- 7 个关节：joint1-a1_r ... joint7-a1_r（与 armsdk 一致）
 
-           注意：所有接口都显式给出 initial_value。
-           ros2_control 对【没有 initial_value 的接口】会用 NaN 初始化
-           （hardware_interface/handle.hpp），NaN 一旦流到下游会持续污染，
-           且 JTC 的到位判断会因此失效。 -->
+           真机模式的位置命令和状态故意不设 initial_value，让 ros2_control
+           用 NaN 初始化。controller_manager 必须等到桥接层发布实测位置后
+           才能激活 arm_controller；否则 0.0 会被 JTC 当作初始保持点，
+           可能把机械臂拉向零位。桥接层会丢弃启动期间的非有限命令。
+
+           mock 模式保留 0.0 初值，供 GenericSystem 仿真使用。 -->
       <xacro:macro name="onero_a1_joint" params="joint">
         <joint name="${joint}">
           <command_interface name="position">
-            <param name="initial_value">0.0</param>
+            <xacro:if value="${use_fake_hardware}">
+              <param name="initial_value">0.0</param>
+            </xacro:if>
           </command_interface>
           <state_interface name="position">
-            <param name="initial_value">0.0</param>
+            <xacro:if value="${use_fake_hardware}">
+              <param name="initial_value">0.0</param>
+            </xacro:if>
           </state_interface>
           <state_interface name="velocity">
             <param name="initial_value">0.0</param>

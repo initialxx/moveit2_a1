@@ -20,13 +20,14 @@
 """
 
 import os
+import sys
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, RegisterEventHandler
+from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction, RegisterEventHandler
 from launch.conditions import IfCondition, UnlessCondition
-from launch.event_handlers import OnProcessStart
-from launch.substitutions import Command, LaunchConfiguration
+from launch.event_handlers import OnProcessExit, OnProcessStart
+from launch.substitutions import Command, EnvironmentVariable, LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -61,7 +62,20 @@ def generate_launch_description():
         DeclareLaunchArgument("model", default_value="A1R"),
         DeclareLaunchArgument("kp", default_value="50.0"),
         DeclareLaunchArgument("kd", default_value="1.0"),
+        DeclareLaunchArgument("mounting", default_value="upright"),
+        DeclareLaunchArgument("with_gripper", default_value="false"),
+        DeclareLaunchArgument("gravity_compensation", default_value="false"),
+        DeclareLaunchArgument(
+            "sdk_python", default_value=EnvironmentVariable(
+                "ONERO_SDK_PYTHON", default_value=sys.executable
+            ),
+            description="SDK 桥接使用的 Python；setup_env.sh 优先选取 .venv-sdk",
+        ),
         DeclareLaunchArgument("control_rate", default_value="200.0"),
+        DeclareLaunchArgument(
+            "trace_control", default_value="false",
+            description="发布 SDK 命令、反馈和 CAN 周期诊断，供 record_tracking.py 记录",
+        ),
         DeclareLaunchArgument(
             "publish_world_tf",
             default_value="true",
@@ -103,12 +117,27 @@ def generate_launch_description():
 
     # MoveIt 的 SRDF virtual_joint 声明 base_link 挂在 world 下，
     # 因此 TF 树里也需要 world -> base_link
-    world_tf = Node(
-        package="tf2_ros",
-        executable="static_transform_publisher",
-        name="world_to_base_link",
-        output="log",
-        arguments=["0", "0", "0", "0", "0", "0", "world", "base_link"],
+    def make_world_tf(context):
+        mounting = LaunchConfiguration("mounting").perform(context)
+        quaternion = [0.0, 0.0, 0.0, 1.0]
+        if mounting != "upright":
+            # Reuse SDK mounting definitions; no dynamics dependency here.
+            from onero_sdk.mounting import get_mounting_rotation, resolve_mounting
+            from scipy.spatial.transform import Rotation
+            quaternion = Rotation.from_matrix(
+                get_mounting_rotation(resolve_mounting(mounting))
+            ).as_quat().tolist()
+        return [Node(
+            package="tf2_ros", executable="static_transform_publisher",
+            name="world_to_base_link", output="log",
+            arguments=["--x", "0", "--y", "0", "--z", "0",
+                       "--qx", str(quaternion[0]), "--qy", str(quaternion[1]),
+                       "--qz", str(quaternion[2]), "--qw", str(quaternion[3]),
+                       "--frame-id", "world", "--child-frame-id", "base_link"],
+        )]
+
+    world_tf = OpaqueFunction(
+        function=make_world_tf,
         condition=IfCondition(LaunchConfiguration("publish_world_tf")),
     )
 
@@ -135,10 +164,63 @@ def generate_launch_description():
         output="screen",
     )
 
+    # Real hardware starts position states and commands as NaN. Wait for live
+    # bridge state before starting joint_state_broadcaster, so NaNs never reach
+    # MoveIt/RSP. Then wait for the broadcaster's finite state before activating
+    # JTC; activation must never use 0.0 as a fallback target for a real arm.
+    bridge_state_ready = Node(
+        package="onero_a1_bringup",
+        executable="wait_for_joint_states",
+        name="wait_for_bridge_joint_states",
+        output="screen",
+        condition=UnlessCondition(use_fake_hardware),
+        parameters=[
+            {
+                "topic": joint_states_topic,
+                "joints": [
+                    "joint1-a1_r", "joint2-a1_r", "joint3-a1_r", "joint4-a1_r",
+                    "joint5-a1_r", "joint6-a1_r", "joint7-a1_r",
+                ],
+            }
+        ],
+    )
+
+    joint_state_ready = Node(
+        package="onero_a1_bringup",
+        executable="wait_for_joint_states",
+        name="wait_for_valid_joint_states",
+        output="screen",
+        parameters=[
+            {
+                "joints": [
+                    "joint1-a1_r", "joint2-a1_r", "joint3-a1_r", "joint4-a1_r",
+                    "joint5-a1_r", "joint6-a1_r", "joint7-a1_r",
+                ],
+                "topic": "/joint_states",
+            }
+        ],
+    )
+
+    def spawn_broadcaster_after_bridge_state(event, _context):
+        if event.returncode == 0:
+            return [joint_state_broadcaster_spawner]
+        return [LogInfo(msg="未收到真机关节状态；状态广播器和 arm_controller 保持未启动")]
+
+    def activate_controller_after_state(event, _context):
+        if event.returncode == 0:
+            return [arm_controller_spawner]
+        return [LogInfo(msg="未收到有效关节状态；arm_controller 保持未启动")]
+
+    def spawn_broadcaster_for_fake_hardware(_event, context):
+        if LaunchConfiguration("use_fake_hardware").perform(context).lower() == "true":
+            return [joint_state_broadcaster_spawner]
+        return []
+
     # ─── 话题桥适配节点（仅话题桥模式启动）──────────────────────────
     bridge_node = Node(
         package="onero_a1_bringup",
         executable="topic_bridge",
+        prefix=[LaunchConfiguration("sdk_python")],
         name="onero_topic_bridge",
         output="screen",
         condition=UnlessCondition(use_fake_hardware),
@@ -147,22 +229,43 @@ def generate_launch_description():
                 "joint_commands_topic": joint_commands_topic,
                 "joint_states_topic": joint_states_topic,
                 "simulate": ParameterValue(simulate, value_type=bool),
+                "trace_control": ParameterValue(
+                    LaunchConfiguration("trace_control"), value_type=bool
+                ),
                 "control_rate": ParameterValue(
                     LaunchConfiguration("control_rate"), value_type=float
                 ),
                 "can_channel": LaunchConfiguration("can_channel"),
                 "model": LaunchConfiguration("model"),
+                "mounting": LaunchConfiguration("mounting"),
+                "with_gripper": ParameterValue(LaunchConfiguration("with_gripper"), value_type=bool),
+                "gravity_compensation": ParameterValue(
+                    LaunchConfiguration("gravity_compensation"), value_type=bool
+                ),
                 "kp": ParameterValue(LaunchConfiguration("kp"), value_type=float),
                 "kd": ParameterValue(LaunchConfiguration("kd"), value_type=float),
             }
         ],
     )
 
-    # 等 ros2_control_node 起来再 spawn 控制器，避免竞态
+    # Fake hardware has finite initial values, so its broadcaster can start
+    # with controller_manager. Real hardware waits for fresh bridge feedback.
     spawn_after_cm = RegisterEventHandler(
         OnProcessStart(
             target_action=ros2_control_node,
-            on_start=[joint_state_broadcaster_spawner, arm_controller_spawner],
+            on_start=spawn_broadcaster_for_fake_hardware,
+        )
+    )
+    spawn_broadcaster_after_bridge = RegisterEventHandler(
+        OnProcessExit(
+            target_action=bridge_state_ready,
+            on_exit=spawn_broadcaster_after_bridge_state,
+        )
+    )
+    spawn_arm_after_valid_state = RegisterEventHandler(
+        OnProcessExit(
+            target_action=joint_state_ready,
+            on_exit=activate_controller_after_state,
         )
     )
 
@@ -197,6 +300,10 @@ def generate_launch_description():
             ros2_control_node,
             bridge_node,
             watchdog_node,
+            bridge_state_ready,
+            joint_state_ready,
             spawn_after_cm,
+            spawn_broadcaster_after_bridge,
+            spawn_arm_after_valid_state,
         ]
     )

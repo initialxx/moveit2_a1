@@ -32,4 +32,34 @@ arm_controller:
       - joint5-a1_r
       - joint6-a1_r
       - joint7-a1_r
+    # Start from fresh measured state, never from the command interface's
+    # initial value. In real-hardware mode the state starts as NaN and the
+    # launch file waits for the joint-state broadcaster before activating JTC.
+    set_last_command_interface_value_as_state_on_activation: false
     allow_nonzero_velocity_at_trajectory_end: true
+    constraints:
+      # Require real feedback to converge; zero tolerances would disable these
+      # checks and allow the controller to report success with a large error.
+      goal_time: 1.0
+      stopped_velocity_tolerance: 0.02
+      joint1-a1_r:
+        trajectory: 0.20
+        goal: 0.05
+      joint2-a1_r:
+        trajectory: 0.20
+        goal: 0.05
+      joint3-a1_r:
+        trajectory: 0.20
+        goal: 0.05
+      joint4-a1_r:
+        trajectory: 0.20
+        goal: 0.05
+      joint5-a1_r:
+        trajectory: 0.20
+        goal: 0.05
+      joint6-a1_r:
+        trajectory: 0.20
+        goal: 0.05
+      joint7-a1_r:
+        trajectory: 0.20
+        goal: 0.05

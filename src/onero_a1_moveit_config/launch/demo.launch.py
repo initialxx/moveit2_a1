@@ -23,8 +23,9 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo, RegisterEventHandler
 from launch.conditions import IfCondition
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -46,6 +47,18 @@ def generate_launch_description():
         DeclareLaunchArgument("rviz", default_value="true"),
         DeclareLaunchArgument("can_channel", default_value="can0"),
         DeclareLaunchArgument("model", default_value="A1R"),
+        DeclareLaunchArgument("mounting", default_value="upright"),
+        DeclareLaunchArgument("with_gripper", default_value="false"),
+        DeclareLaunchArgument("gravity_compensation", default_value="false"),
+        DeclareLaunchArgument(
+            "trace_control", default_value="false",
+            description="记录实际 SDK 命令及反馈、CAN 收发耗时和丢帧",
+        ),
+        DeclareLaunchArgument(
+            "control_rate",
+            default_value="200.0",
+            description="话题桥 CAN 控制频率；SLCAN 缓冲紧张时可降低做诊断",
+        ),
         DeclareLaunchArgument(
             "rviz_config", default_value="moveit.rviz",
             description="RViz 配置文件名（位于本包 rviz/ 下）",
@@ -89,6 +102,11 @@ def generate_launch_description():
             "simulate": simulate,
             "can_channel": LaunchConfiguration("can_channel"),
             "model": LaunchConfiguration("model"),
+            "mounting": LaunchConfiguration("mounting"),
+            "with_gripper": LaunchConfiguration("with_gripper"),
+            "gravity_compensation": LaunchConfiguration("gravity_compensation"),
+            "control_rate": LaunchConfiguration("control_rate"),
+            "trace_control": LaunchConfiguration("trace_control"),
         }.items(),
     )
 
@@ -121,4 +139,37 @@ def generate_launch_description():
         condition=IfCondition(use_rviz),
     )
 
-    return LaunchDescription(args + [bringup, move_group_node, rviz_node])
+    # Do not show or plan from MoveIt's default zero pose when the real bridge
+    # has not supplied measured joints yet. The bringup launch already gates
+    # ros2_control controller activation; this gates the MoveIt UI as well.
+    moveit_state_ready = Node(
+        package="onero_a1_bringup",
+        executable="wait_for_joint_states",
+        name="wait_for_moveit_joint_states",
+        output="screen",
+        parameters=[
+            {
+                "topic": "/joint_states",
+                "joints": [
+                    "joint1-a1_r", "joint2-a1_r", "joint3-a1_r", "joint4-a1_r",
+                    "joint5-a1_r", "joint6-a1_r", "joint7-a1_r",
+                ],
+            }
+        ],
+    )
+
+    def start_moveit_after_state(event, _context):
+        if event.returncode == 0:
+            return [move_group_node, rviz_node]
+        return [LogInfo(msg="未收到有效关节状态；MoveIt 和 RViz 保持未启动")]
+
+    start_moveit_after_state_ready = RegisterEventHandler(
+        OnProcessExit(
+            target_action=moveit_state_ready,
+            on_exit=start_moveit_after_state,
+        )
+    )
+
+    return LaunchDescription(
+        args + [start_moveit_after_state_ready, bringup, moveit_state_ready]
+    )

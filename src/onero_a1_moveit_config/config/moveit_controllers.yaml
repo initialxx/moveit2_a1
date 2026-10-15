@@ -9,7 +9,9 @@
 
 trajectory_execution:
   allowed_execution_duration_scaling: 1.2
-  allowed_goal_duration_margin: 0.5
+  # Keep this longer than the JTC goal_time so MoveIt does not cancel a
+  # trajectory before the controller can finish its feedback-based check.
+  allowed_goal_duration_margin: 2.0
   allowed_start_tolerance: 0.01
   execution_duration_monitoring: true
 
