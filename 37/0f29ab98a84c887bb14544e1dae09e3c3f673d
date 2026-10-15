@@ -1,0 +1,35 @@
+.notes/session-handover.md
+  s_64ea7c86d064a1::t_a2615a3453bf5d 15,169,210,212
+  s_64ea7c86d064a1::t_b39d47f753e61d 13
+.notes/两套实现对比与合并建议.md
+  s_64ea7c86d064a1::t_b39d47f753e61d 387,403
+  s_64ea7c86d064a1::t_a2615a3453bf5d 3-4,332,340,342,378
+docs/真机接入检查清单.md
+  s_64ea7c86d064a1::t_b39d47f753e61d 31,34,95,264
+README.md
+  s_64ea7c86d064a1::t_aebfecf6a86a7f 52,59
+  s_64ea7c86d064a1::t_a2615a3453bf5d 53-58,60
+tools/exp_srdf_ab.sh
+  s_64ea7c86d064a1::t_b39d47f753e61d 28,82
+  s_64ea7c86d064a1::t_a2615a3453bf5d 64,66
+tools/check_clean_build.sh
+  s_64ea7c86d064a1::t_b39d47f753e61d 17,37,39
+tools/exp_armsdk_stepwise.sh
+  s_64ea7c86d064a1::t_b39d47f753e61d 12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "370f29ab98a84c887bb14544e1dae09e3c3f673d",
+  "prompts": {},
+  "sessions": {
+    "s_64ea7c86d064a1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a13d60-f162-71c1-bbb3-bfc7e70528b1",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "yangxiao <yangxiao@wondertechlabs.com>"
+    }
+  }
+}
