@@ -9,7 +9,7 @@
 # 注意：全程不改 armsdk 仓库。步骤 2 用的是 onero_moveit_config 的**副本**。
 
 AS="/home/initialxx/project/armsdk/ros2"
-WS="/home/initialxx/project/moveit2_ws/.onero_ws"
+WS="/home/initialxx/project/moveit2_ws"
 LOGDIR="$WS/.logs"
 PREFIX="$LOGDIR/exp_fake_prefix2"
 PATCHED="$LOGDIR/exp_patched_moveit_config"

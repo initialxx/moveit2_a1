@@ -10,8 +10,9 @@
 > | 旧会话存档 | `~/.dsh/sessions/--home-initialxx-project-moveit2--/0f223455-.../session.v4.jsonl.zstd` |
 > | 会话格式 | DSH session v4（zstd 压缩的 JSONL），可用 `zstdcat` 解开 |
 > | 旧工作区 cwd | `/home/initialxx/project/moveit2`（上游 moveit2 克隆，仍在） |
-> | 现工作区 | `/home/initialxx/project/moveit2_ws`（`.notes/` `.onero_ws/` `.research/` 已迁入） |
+> | 现工作区 | `/home/initialxx/project/moveit2_ws`（项目源码与工具已移至仓库根目录） |
 >
+> 更新（2026-10-15）：原 `.onero_ws/` 内容已移至仓库根目录，旧目录已删除；第 4.1 节的布局树是 2026-10-14 的历史快照。
 > 需要原始细节（完整问答、工具调用记录）时，解开上面的存档再查。
 
 ---
@@ -165,7 +166,7 @@ MoveIt 2 是**平台**，厂商驱动是**插件/消费者**，两者是**依赖
 | 2 | KDL 根连杆惯量警告的处理方式（需先定修法） | 检查清单 5.1 | 需决策 |
 | 3 | `kp`/`kd` 运行中可调（需自定义接口） | 检查清单 5.4 | 需决策 |
 | 4 | 正式 `apt install` 话题桥插件并删除 `overlay/` | 环境 | 无（换正式环境时做） |
-| 5 | rosdistro 发布布局调整（包目前在隐藏目录 `.onero_ws/src/`） | 路径 B | 需决策 |
+| 5 | rosdistro 发布布局调整（包目前在根目录 `src/`） | 路径 B | 需决策 |
 | 6 | 路径 A：PR 到 moveit.ros.org 机器人列表 | 上游接纳 | 依赖 1 完成 |
 | 7 | 路径 C：参数命名空间静默失效的上游 PR | 调研所得 | 无 |
 | 8 | 第二阶段：自写 action server | 目标（暂缓） | 用户明确暂缓 |
@@ -206,9 +207,9 @@ MoveIt 2 是**平台**，厂商驱动是**插件/消费者**，两者是**依赖
 
 | 文档 | 内容 |
 |---|---|
-| `.onero_ws/README.md` | 主文档：包结构、三种运行模式、数据流、安全设计、两个隐蔽 bug 的调试记录 |
+| `README.md` | 主文档：包结构、三种运行模式、数据流、安全设计、两个隐蔽 bug 的调试记录 |
 | `.notes/两套实现对比与合并建议.md` | ★ **armsdk/ros2 与 .onero_ws 两套实现的完整对比**（含实测证据与合并动作清单） |
-| `.onero_ws/docs/真机接入检查清单.md` | 上真机前的逐项确认 |
+| `docs/真机接入检查清单.md` | 上真机前的逐项确认 |
 | `.notes/onero-moveit2-adapter-comparison.md` | 自写 action server vs 话题桥 的对比 |
 | `.notes/onero-moveit2-adapter-comparison-techappendix.md` | 上文的详细技术附录 |
 | `.notes/onero-moveit2-integration-guide.md` | 接入指南 |

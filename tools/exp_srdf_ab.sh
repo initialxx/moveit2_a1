@@ -25,7 +25,7 @@ mkdir -p "$LOGDIR"
 [ -f "$FOREIGN" ] || { echo "✗ 找不到对照 SRDF: $FOREIGN"; exit 1; }
 
 restore() {
-  ( cd "$WS/../.." && git checkout -- ".onero_ws/$SRDF_REL" ) 2>/dev/null
+  git -C "$WS" checkout -- "$SRDF_REL" 2>/dev/null
   pkill -f "move_group" 2>/dev/null
   pkill -f "ros2_control_node" 2>/dev/null
   pkill -f "robot_state_publisher" 2>/dev/null
@@ -61,9 +61,9 @@ run_variant() {
 }
 
 echo "================================================================"
-echo " 变体 A：.onero_ws 当前 SRDF（碰撞矩阵来自 SDK 权威文件，28 对）"
+echo " 变体 A：当前工作区 SRDF（碰撞矩阵来自 SDK 权威文件，28 对）"
 echo "================================================================"
-run_variant "onero_ws(28对)" || true
+run_variant "workspace(28对)" || true
 
 echo
 echo "================================================================"
@@ -79,5 +79,5 @@ echo
 echo "================================================================"
 echo " SRDF 已恢复。校验："
 echo "   disable_collisions 条目数 = $(grep -c disable_collisions "$SRDF")（应为 28）"
-echo "   git 状态：$(cd "$WS/../.." && git status --short ".onero_ws/$SRDF_REL" | wc -l) 处改动（应为 0）"
+echo "   git 状态：$(git -C "$WS" status --short "$SRDF_REL" | wc -l) 处改动（应为 0）"
 echo "================================================================"

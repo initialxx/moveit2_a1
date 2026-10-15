@@ -14,7 +14,7 @@
 
 # 不要用 set -u（ROS 的 setup.bash 会引用未绑定变量）
 WS="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPO="$(cd "$WS/.." && pwd)"
+REPO="$WS"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -34,9 +34,9 @@ fi
 
 # 1) 从 git 导出 HEAD（等价于一次全新 clone）
 git -C "$REPO" archive HEAD | tar -x -C "$TMP"
-SRC="$TMP/.onero_ws/src"
+SRC="$TMP/src"
 if [ ! -d "$SRC" ]; then
-  echo "  ✗ 导出结果里没有 .onero_ws/src"
+  echo "  ✗ 导出结果里没有 src"
   exit 1
 fi
 echo "  导出包   : $(ls "$SRC" | tr '\n' ' ')"

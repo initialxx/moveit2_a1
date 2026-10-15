@@ -49,6 +49,15 @@ onero_a1_moveit_config ──▶ onero_a1_bringup ──▶ onero_a1_description
 > ```
 > 期望输出：`error_code = 1`、`规划轨迹点数 ≈ 20`、关节实际到位（误差 < 0.05 rad）。
 
+> **目录调整（2026-10-15）**：项目已从 `.onero_ws/` 移到仓库根目录。迁移前的 `build/` 和 `install/` 记录了旧绝对路径，已清理并在根目录重建。重建命令：
+> ```bash
+> rm -rf build install log
+> source setup_env.sh
+> colcon build --symlink-install
+> source install/setup.bash
+> ```
+> 构建结果：3 个包完成；本次没有重跑端到端测试。
+
 ---
 
 ## 环境准备
