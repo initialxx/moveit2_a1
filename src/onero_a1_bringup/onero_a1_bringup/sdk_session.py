@@ -13,12 +13,13 @@ from onero_sdk.model_registry import get_model
 from onero_sdk.safety import SafetyConfig
 from onero_sdk.zero_calibration import load_zero_offset, validate_offsets
 from onero_sdk.zero_offset_backend import ZeroOffsetBackend
+from .can_ownership import ChannelOwnership
 
 
 class _DeferredBackend(ArmBackend):
     """Lazy CAN ownership plus observation of commands after SDK limiting."""
 
-    def __init__(self, model, channel, max_ff_torque, on_miss, on_fault, factory):
+    def __init__(self, model, channel, max_ff_torque, on_miss, on_fault, factory, gripper=None):
         self._model = model
         self._channel = channel
         self._max_ff_torque = max_ff_torque
@@ -26,7 +27,9 @@ class _DeferredBackend(ArmBackend):
         self._on_fault = on_fault
         self._factory = factory
         self._inner = None
+        self._gripper = gripper
         self.last_command = None
+        self._ownership = ChannelOwnership(channel)
 
     @property
     def num_joints(self):
@@ -34,10 +37,22 @@ class _DeferredBackend(ArmBackend):
 
     def enable(self):
         if self._inner is None:
-            self._inner = self._factory(
-                channel=self._channel, joint_specs=self._model.joints,
-                recv_timeout=0.003, on_miss=self._on_miss, on_fault=self._on_fault,
-            )
+            self._ownership.acquire()
+            try:
+                self._inner = self._factory(
+                    channel=self._channel, joint_specs=self._model.joints,
+                    recv_timeout=0.003, on_miss=self._on_miss, on_fault=self._on_fault,
+                )
+                if self._gripper is not None:
+                    self._inner.bind_can_device(self._gripper)
+            except BaseException:
+                try:
+                    if self._inner is not None:
+                        self._inner.close(disable=False)
+                finally:
+                    self._inner = None
+                    self._ownership.close()
+                raise
         return self._inner.enable()
 
     def disable(self):
@@ -53,6 +68,7 @@ class _DeferredBackend(ArmBackend):
         self.last_command = {
             "raw_position": list(positions), "velocity": list(velocities),
             "kp": list(kps), "kd": list(kds), "torque_ff": limited,
+            "sdk_torque_ff": list(torques),
             "bridge_ff_limited": limited != list(torques),
         }
         return self._inner.command(positions, velocities, kps, kds, limited)
@@ -69,17 +85,22 @@ class _DeferredBackend(ArmBackend):
         return self._inner.get_state()
 
     def close(self, disable=False):
-        if self._inner is not None:
-            self._inner.close(disable=disable)
-            self._inner = None
+        try:
+            if self._inner is not None:
+                self._inner.close(disable=disable)
+                self._inner = None
+        finally:
+            self._ownership.close()
 
 
 class SDKArmSession:
     def __init__(self, *, model_name, channel, mounting, with_gripper,
                  gravity_compensation, control_rate, max_gravity_torque,
-                 on_miss=None, on_fault=None, backend_factory=CanBackend):
+                 on_miss=None, on_fault=None, backend_factory=CanBackend,
+                 gripper_model="none"):
         self.model = get_model(model_name)
         self._gravity = gravity_compensation
+        self._requested_torque_ff = None
         if not math.isfinite(max_gravity_torque) or max_gravity_torque <= 0:
             raise ValueError("max_gravity_torque must be positive and finite")
         if not math.isfinite(control_rate) or control_rate <= 0:
@@ -89,8 +110,15 @@ class SDKArmSession:
         # the SDK helper here so channel-specific calibration is still honored.
         self.offsets = load_zero_offset(self.model.name, channel, self.model.num_joints)
         validate_offsets(self.offsets, self.model.joints)
+        self.gripper = None
+        if gripper_model == "woan_picker":
+            from onero_sdk.grippers import OneroGripper
+            self.gripper = OneroGripper(model=model_name, feedback_timeout=.003)
+        elif gripper_model != "none":
+            raise ValueError(f"Unsupported gripper_model: {gripper_model}")
         self._transport = _DeferredBackend(
-            self.model, channel, max_gravity_torque, on_miss, on_fault, backend_factory
+            self.model, channel, max_gravity_torque, on_miss, on_fault, backend_factory,
+            gripper=self.gripper,
         )
         calibrated = ZeroOffsetBackend(self._transport, self.offsets)
         safety = SafetyConfig(
@@ -126,6 +154,10 @@ class SDKArmSession:
         return {
             **command,
             "position": [p - o for p, o in zip(command["raw_position"], self.offsets)],
+            "requested_torque_ff": self._requested_torque_ff,
+            "sdk_ff_limited": (any(abs(a - b) > 1e-9 for a, b in
+                                   zip(self._requested_torque_ff, command["sdk_torque_ff"]))
+                               if self._requested_torque_ff is not None else None),
         }
 
     def enable(self):
@@ -137,10 +169,12 @@ class SDKArmSession:
 
     def servoj(self, positions, kp, kd, velocities):
         self._transport.last_command = None
+        self._requested_torque_ff = None
         # Evaluate at the SDK's latest measured pose, not at the desired target.
         # Explicitly reading this public SDK API also prevents silent zero-FF
         # fallback after a dynamics error. All dynamics remain inside the SDK.
         torques = self._checked_gravity() if self._gravity else [0.0] * self.model.num_joints
+        self._requested_torque_ff = list(torques)
         return self.arm.servoj(positions, kp=kp, kd=kd, velocities=velocities, tau_ff=torques)
 
     def disable(self):

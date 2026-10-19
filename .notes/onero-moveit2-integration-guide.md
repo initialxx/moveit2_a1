@@ -709,7 +709,7 @@ onero_a1_ws/src/
     │   ├── moveit_controllers.yaml        # 给 move_group
     │   └── ros2_controllers.yaml          # 仅路线 B/C，给 controller_manager
     ├── launch/
-    │   ├── demo.launch.py                 # 假硬件，验证配置
+    │   ├── moveit.launch.py               # 驱动与 MoveIt 启动，默认假硬件
     │   └── bringup.launch.py              # 真机
     └── config/moveit.rviz
 ```

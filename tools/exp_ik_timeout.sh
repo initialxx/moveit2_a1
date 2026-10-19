@@ -7,7 +7,7 @@ LOG="$WS/.logs/exp_ik.launch.log"
 pkill -f "move_group" 2>/dev/null; pkill -f "ros2_control_node" 2>/dev/null; sleep 3
 source "$WS/setup_env.sh" > /dev/null 2>&1
 
-ros2 launch onero_a1_moveit_config demo.launch.py \
+ros2 launch onero_a1_moveit_config moveit.launch.py \
     rviz:=false use_fake_hardware:=true > "$LOG" 2>&1 &
 
 for i in $(seq 1 60); do

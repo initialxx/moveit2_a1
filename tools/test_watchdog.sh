@@ -14,7 +14,7 @@ LOG="${WS}/.logs/watchdog_e2e.log"
 BRIDGE_LOG="${WS}/.logs/bridge_restart.log"
 
 echo "=== 启动完整链路 ==="
-ros2 launch onero_a1_moveit_config demo.launch.py \
+ros2 launch onero_a1_moveit_config moveit.launch.py \
     rviz:=false use_fake_hardware:=false simulate:=true > "${LOG}" 2>&1 &
 LAUNCH_PID=$!
 

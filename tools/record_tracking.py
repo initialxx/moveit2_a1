@@ -27,7 +27,7 @@ from rosidl_runtime_py.convert import message_to_ordereddict
 from action_msgs.msg import GoalStatus, GoalStatusArray
 from control_msgs.action import FollowJointTrajectory
 from control_msgs.msg import JointTrajectoryControllerState
-from moveit_msgs.action import MoveGroup
+from moveit_msgs.action import ExecuteTrajectory, MoveGroup
 from moveit_msgs.msg import DisplayTrajectory
 from rcl_interfaces.msg import Log
 from rcl_interfaces.srv import GetParameters
@@ -46,7 +46,7 @@ def json_safe(value):
 
 
 class TrackingRecorder(Node):
-    def __init__(self, output):
+    def __init__(self, output, observe_only=False):
         super().__init__("onero_tracking_recorder")
         self.output = output
         self.file = output.open("x", encoding="utf-8")
@@ -84,6 +84,7 @@ class TrackingRecorder(Node):
         self.actions = {}
         for action_type, name in (
             (MoveGroup, "/move_action"),
+            (ExecuteTrajectory, "/execute_trajectory"),
             (FollowJointTrajectory, "/arm_controller/follow_joint_trajectory"),
         ):
             result_type = action_type.Impl.GetResultService
@@ -106,6 +107,7 @@ class TrackingRecorder(Node):
                 "control_rate", "state_publish_rate", "kp", "kd", "simulate",
                 "can_channel", "model", "gravity_compensation", "trace_control",
                 "mounting", "with_gripper",
+                "velocity_feedforward", "velocity_feedforward_scale", "velocity_feedforward_timeout",
             ],
         }
         for name in self.parameter_names:
@@ -114,7 +116,10 @@ class TrackingRecorder(Node):
             ))
         self.maintenance = self.create_timer(1.0, self._maintain)
         print(f"正在只读记录：{output}", flush=True)
-        print("现在执行一次小范围、低速 Plan & Execute；结束后等 5 秒再按 Ctrl-C。", flush=True)
+        if observe_only:
+            print("静止观察记录：保持现有目标，不需要发起运动。", flush=True)
+        else:
+            print("准备好后执行一次小范围、低速运动；结束后等 5 秒再按 Ctrl-C。", flush=True)
 
     def _write(self, source, data):
         self.counts[source] += 1
@@ -183,6 +188,9 @@ class TrackingRecorder(Node):
                             trajectory.joint_names, trajectory.points[-1].positions)),
                     }
                     print("已保存 MoveGroup 返回的原始规划终点。", flush=True)
+            elif key[0] == "/execute_trajectory":
+                print(f"MoveIt 执行结果：status={response.status}, "
+                      f"code={response.result.error_code.val}", flush=True)
             else:
                 print(f"控制器结果：{response.result.error_code} "
                       f"{response.result.error_string}", flush=True)
@@ -227,7 +235,8 @@ class TrackingRecorder(Node):
                 for name, error in errors.items():
                     print(f"  {name}: {error:+.6f} rad / {math.degrees(error):+.3f}°")
         if not self.last_plan:
-            print("未取得 MoveGroup 原始轨迹，不能用 controller_state.reference 代替原始目标。")
+            print("未取得 MoveGroup 原始轨迹；笛卡尔示例请结合 .logs/demos 报告中的原始目标。"
+                  "不能用 controller_state.reference 代替原始目标。")
         for topic in ("/robot_joint_commands", "/robot_joint_states",
                       "/arm_controller/controller_state", "/onero_topic_bridge/control_trace"):
             if not self.counts[topic]:
@@ -245,6 +254,8 @@ def main():
     parser.add_argument("--output", type=Path, help="JSONL 输出文件（必须不存在）")
     parser.add_argument("--duration", type=float, default=0.0,
                         help="记录秒数；0 表示直到 Ctrl-C（默认）")
+    parser.add_argument("--observe-only", action="store_true",
+                        help="显示静止观察提示；仅影响提示文本，不会改变机械臂状态")
     args = parser.parse_args()
     if not math.isfinite(args.duration) or args.duration < 0:
         parser.error("--duration 必须是有限非负数")
@@ -254,7 +265,7 @@ def main():
     if output.exists():
         parser.error(f"输出文件已存在：{output}")
     rclpy.init()
-    node = TrackingRecorder(output)
+    node = TrackingRecorder(output, observe_only=args.observe_only)
     started = time.monotonic()
     try:
         while rclpy.ok() and (not args.duration or time.monotonic() - started < args.duration):

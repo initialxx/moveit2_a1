@@ -21,7 +21,7 @@ LAUNCH_LOG="$LOGDIR/verify_launch.log"
 TEST_LOG="$LOGDIR/verify_e2e.log"
 
 cleanup() {
-  pkill -f "onero_a1_moveit_config/demo.launch.py" 2>/dev/null
+  pkill -f "onero_a1_moveit_config/moveit.launch.py" 2>/dev/null
   pkill -f "ros2_control_node" 2>/dev/null
   pkill -f "move_group" 2>/dev/null
   pkill -f "onero_a1_bringup/topic_bridge" 2>/dev/null
@@ -36,7 +36,7 @@ sleep 1
 # shellcheck disable=SC1091
 source "$WS_DIR/setup_env.sh" >/dev/null 2>&1
 echo "=== [1/4] 启动 demo（话题桥模式 / 不连真机）==="
-ros2 launch onero_a1_moveit_config demo.launch.py \
+ros2 launch onero_a1_moveit_config moveit.launch.py \
     rviz:=false use_fake_hardware:=false simulate:=true > "$LAUNCH_LOG" 2>&1 &
 LAUNCH_PID=$!
 

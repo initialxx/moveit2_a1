@@ -17,8 +17,8 @@
         （由 PickNik 的 topic_based_ros2_control 上游合并而来，
           旧插件名 topic_based_ros2_control/TopicBasedSystem 仍可用但已弃用）
 
-  命令接口只声明 position —— JointTrajectoryController 用位置控制。
-  将来若需要力矩/阻抗，再增加 effort（该插件支持 position/velocity/effort）。
+  position + velocity 将 JTC 同一采样点的位置、速度传给话题桥。
+  位置/速度直接转发，电机闭环仍在 SDK/MIT 驱动侧；前馈开关由桥接参数控制。
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
@@ -31,7 +31,9 @@
           <plugin>mock_components/GenericSystem</plugin>
           <param name="fake_sensor_commands">false</param>
           <param name="state_following_offset">0.0</param>
-          <param name="calculate_dynamics">true</param>
+          <!-- Mirror both position and velocity; GenericSystem dynamics mode
+               rejects JTC's simultaneous position+velocity command interfaces. -->
+          <param name="calculate_dynamics">false</param>
         </xacro:if>
         <xacro:unless value="${use_fake_hardware}">
           <plugin>joint_state_topic_hardware_interface/JointStateTopicSystem</plugin>
@@ -56,6 +58,9 @@
             <xacro:if value="${use_fake_hardware}">
               <param name="initial_value">0.0</param>
             </xacro:if>
+          </command_interface>
+          <command_interface name="velocity">
+            <param name="initial_value">0.0</param>
           </command_interface>
           <state_interface name="position">
             <xacro:if value="${use_fake_hardware}">

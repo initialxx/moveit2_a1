@@ -13,6 +13,11 @@
 #   规划限位取约 2/3，留出安全余量；加速度为工程经验值，可按实测调整。
 
 joint_limits:
+  woan_picker_left_finger_joint:
+    has_velocity_limits: true
+    max_velocity: 0.55
+    has_acceleration_limits: true
+    max_acceleration: 1.1
   joint1-a1_r:
     has_velocity_limits: true
     max_velocity: 2.0

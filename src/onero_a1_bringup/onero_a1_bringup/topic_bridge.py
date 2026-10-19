@@ -26,17 +26,23 @@ from __future__ import annotations
 
 import math
 import json
+import os
 from collections import deque
+from pathlib import Path
 import threading
 import time
 from typing import Optional
+import uuid
 
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
+from rcl_interfaces.msg import ParameterDescriptor
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
+
+from .velocity_feedforward import VelocityFeedforward
 
 DEFAULT_JOINT_NAMES = [
     "joint1-a1_r", "joint2-a1_r", "joint3-a1_r", "joint4-a1_r",
@@ -68,18 +74,50 @@ class OneroTopicBridge(Node):
         self.declare_parameter("control_rate", 200.0)
         self.declare_parameter("state_publish_rate", 100.0)
         self.declare_parameter("trace_control", False)
+        # Resolve simulation before choosing the default for direct node users.
+        self.declare_parameter("simulate", True)
+        self.declare_parameter("velocity_feedforward", not bool(self.get_parameter("simulate").value),
+                               descriptor=ParameterDescriptor(read_only=True,
+                                   description="统一控制七关节速度前馈；真机默认开启，模拟默认关闭"))
+        self.declare_parameter("velocity_feedforward_scale", [1.0] * 7,
+                               descriptor=ParameterDescriptor(read_only=True,
+                                   description="兼容参数，固定为全 1；使用 velocity_feedforward 统一开关"))
+        self.declare_parameter("velocity_feedforward_timeout", 0.1,
+                               descriptor=ParameterDescriptor(read_only=True))
 
         # simulate=true 时不连硬件，用一阶跟随模拟机械臂（用于无真机联调）
-        self.declare_parameter("simulate", True)
         self.declare_parameter("sim_time_constant", 0.02)
 
         # 真机参数（simulate=false 时生效）
         self.declare_parameter("can_channel", "can0")
         self.declare_parameter("model", "A1R")
-        self.declare_parameter("kp", 50.0)
-        self.declare_parameter("kd", 1.0)
+        # These values are captured before hardware enable. Reject runtime
+        # parameter edits instead of reporting success without changing the
+        # gains used by the control thread.
+        self.declare_parameter("kp", 50.0, descriptor=ParameterDescriptor(
+            read_only=True, description="位置比例增益，仅启动时设置"))
+        self.declare_parameter("kd", 1.0, descriptor=ParameterDescriptor(
+            read_only=True, description="速度阻尼增益，仅启动时设置"))
         self.declare_parameter("mounting", "upright")
         self.declare_parameter("with_gripper", False)
+        self.declare_parameter("gripper_model", "none", descriptor=ParameterDescriptor(read_only=True))
+        self.declare_parameter("allow_gripper_execution", True, descriptor=ParameterDescriptor(read_only=True))
+        self.declare_parameter("activate_gripper_on_start", True, descriptor=ParameterDescriptor(read_only=True))
+        self.declare_parameter("gripper_closed_sdk_opening", 0., descriptor=ParameterDescriptor(read_only=True))
+        self.declare_parameter("gripper_open_sdk_opening", 1., descriptor=ParameterDescriptor(read_only=True))
+        self.declare_parameter("gripper_calibration_file", "", descriptor=ParameterDescriptor(read_only=True))
+        from .gripper_coordinates import GripperCalibration, default_calibration_path, load_calibration
+        GripperCalibration(float(self.get_parameter("gripper_closed_sdk_opening").value),
+                           float(self.get_parameter("gripper_open_sdk_opening").value))
+        self._gripper_calibration_file = str(self.get_parameter("gripper_calibration_file").value)
+        if self.get_parameter("gripper_model").value == "woan_picker":
+            simulated = bool(self.get_parameter("simulate").value)
+            model, channel = str(self.get_parameter("model").value), str(self.get_parameter("can_channel").value)
+            if not self._gripper_calibration_file and not simulated:
+                ros_home = os.environ.get("ROS_HOME", str(Path.home()/".ros"))
+                self._gripper_calibration_file = str(default_calibration_path(ros_home, model, channel))
+            if self._gripper_calibration_file and self._gripper_calibration_file != "none":
+                load_calibration(self._gripper_calibration_file, model=model, channel=channel, simulate=simulated)
 
         # CAN 健康与故障处置
         #   log     —— 仅记录（默认，最保守）
@@ -94,16 +132,21 @@ class OneroTopicBridge(Node):
         #       -p allow_disable_service:=true
         self.declare_parameter("allow_disable_service", False)
 
-        # 重力补偿前馈（可选，默认关）
+        # 重力补偿前馈（真机默认开启，模拟模式不计算）
         #   需要 onero-sdk 的 dynamics 依赖（pinocchio）。开启前请确认负载参数正确，
         #   安装方向、夹爪标定和重力计算均由 SDK Arm 负责。
-        self.declare_parameter("gravity_compensation", False)
+        self.declare_parameter("gravity_compensation", True)
         self.declare_parameter("max_gravity_torque", 15.0)
 
         gp = self.get_parameter
         self._joint_names: list[str] = list(gp("joint_names").value)
         self._n = len(self._joint_names)
         self._idx = {n: i for i, n in enumerate(self._joint_names)}
+        self._velocity_ff = VelocityFeedforward(
+            self._joint_names, enabled=bool(gp("velocity_feedforward").value),
+            scale=gp("velocity_feedforward_scale").value,
+            timeout=gp("velocity_feedforward_timeout").value,
+        )
 
         self._control_rate = float(gp("control_rate").value)
         if not math.isfinite(self._control_rate) or self._control_rate <= 0:
@@ -163,9 +206,35 @@ class OneroTopicBridge(Node):
                 "接真机请设置 simulate:=false"
             )
             if gp("gravity_compensation").value:
-                self.get_logger().warn(
-                    "gravity_compensation=true 在模拟模式下无效（力矩前馈只对真机有意义）"
+                self.get_logger().info(
+                    "模拟模式不计算重力补偿；该开关仅在真机模式生效"
                 )
+
+        # Capture once, before the control thread or any ROS command can change
+        # the initial feedback. Re-enable and subsequent commands must not reset it.
+        startup_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:12]
+        startup_directory = Path(os.environ.get("ROS_HOME", str(Path.home() / ".ros"))) / "startup_poses"
+        self._startup_pose_file = startup_directory.expanduser().resolve() / f"{startup_id}.json"
+        self._startup_pose_json = json.dumps({
+            "schema_version": 1,
+            "id": startup_id,
+            "captured_ros_ns": self.get_clock().now().nanoseconds,
+            "source": "simulated_startup" if self._simulate else "sdk_startup_feedback",
+            "simulate": self._simulate,
+            "model": str(gp("model").value),
+            "mounting": str(gp("mounting").value),
+            "can_channel": str(gp("can_channel").value),
+            "joint_positions": dict(zip(self._joint_names, self._state_pos)),
+        }, ensure_ascii=False, allow_nan=False)
+        self.declare_parameter(
+            "startup_pose", self._startup_pose_json,
+            descriptor=ParameterDescriptor(read_only=True, description="本次启动时的固定姿态快照（JSON）"),
+            ignore_override=True,
+        )
+        self.declare_parameter(
+            "startup_pose_file", str(self._startup_pose_file),
+            descriptor=ParameterDescriptor(read_only=True), ignore_override=True,
+        )
 
         # ─── ROS 接口 ────────────────────────────────────────────────
         # 命令用 reliable + depth 1：永远只关心最新目标，不积压
@@ -217,6 +286,17 @@ class OneroTopicBridge(Node):
         self._thread = threading.Thread(target=self._control_loop, daemon=True)
         self._thread.start()
 
+        # Disk I/O is outside the CAN loop. Keep the in-memory snapshot usable
+        # even if the log filesystem cannot be written.
+        self.get_logger().info(f"本次启动姿态已固定保存：{self._startup_pose_json}")
+        try:
+            self._startup_pose_file.parent.mkdir(parents=True, exist_ok=True)
+            with self._startup_pose_file.open("x", encoding="utf-8") as stream:
+                stream.write(self._startup_pose_json + "\n")
+            self.get_logger().info(f"启动姿态文件：{self._startup_pose_file}")
+        except OSError as exc:
+            self.get_logger().warning(f"启动姿态文件未写入：{exc}；当前服务只读参数中仍保留快照")
+
         self.get_logger().info(
             f"话题桥已启动 | 关节 {self._n} 个 | 控制 {self._control_rate:.0f}Hz "
             f"| 状态发布 {gp('state_publish_rate').value}Hz | "
@@ -225,6 +305,10 @@ class OneroTopicBridge(Node):
         self.get_logger().info(
             f"  订阅 {gp('joint_commands_topic').value}"
             f"  发布 {gp('joint_states_topic').value}"
+        )
+        self.get_logger().info(
+            f"速度前馈={self._velocity_ff.enabled} | 比例={list(self._velocity_ff.scale)} "
+            f"| 过期归零={self._velocity_ff.timeout:.3f}s"
         )
 
     # ─── 硬件初始化 ──────────────────────────────────────────────────
@@ -257,6 +341,7 @@ class OneroTopicBridge(Node):
                 control_rate=self._control_rate,
                 max_gravity_torque=self._max_gravity_torque,
                 on_miss=self._on_can_miss, on_fault=self._on_can_fault,
+                gripper_model=str(gp("gripper_model").value),
             )
             self._model = self._backend.model
             if self._model.num_joints != self._n:
@@ -281,6 +366,9 @@ class OneroTopicBridge(Node):
             f"| 夹爪标定系数={self._backend.arm.gravity_profile_scales} "
             f"| 零位偏移={self._backend.offsets}"
         )
+        self.get_logger().info(
+            f"SDK servoj 固定增益 | kp={self._kp} | kd={self._kd} | 作用于全部 {self._n} 个关节"
+        )
 
     # ─── 使能 / 失能 ─────────────────────────────────────────────────
 
@@ -296,6 +384,8 @@ class OneroTopicBridge(Node):
             with self._lock:
                 self._state_pos = list(state.joints)
                 self._cmd_pos = list(state.joints)   # 目标对齐当前位置，避免跳变
+                self._velocity_ff.clear("reenabled", reset_order=True)
+                self._last_cmd_stamp = None
                 self._enabled = True
             response.success = True
             response.message = "电机已使能"
@@ -328,6 +418,7 @@ class OneroTopicBridge(Node):
         try:
             with self._lock:
                 self._enabled = False             # 控制循环随即停止下发
+                self._velocity_ff.clear("disabled")
             with self._hardware_lock:
                 self._backend.disable()
             response.success = True
@@ -374,6 +465,7 @@ class OneroTopicBridge(Node):
             with self._lock:
                 self._hold = True
                 self._cmd_pos = list(self._state_pos)
+                self._velocity_ff.clear("fault_hold")
             self.get_logger().warn("已进入保持模式，忽略后续轨迹命令")
         elif self._on_fault_action == "disable":
             self.get_logger().warn(
@@ -384,6 +476,7 @@ class OneroTopicBridge(Node):
                     self._backend.disable()
                 with self._lock:
                     self._enabled = False
+                    self._velocity_ff.clear("fault_disabled")
             except Exception as e:  # noqa: BLE001
                 self.get_logger().error(f"断使能失败: {e}")
 
@@ -398,6 +491,8 @@ class OneroTopicBridge(Node):
         话题里可能短暂出现 NaN。若原样转发给电机，后果不可预期。
         """
         if not msg.name:
+            with self._lock:
+                self._velocity_ff.clear("invalid_command")
             self.get_logger().warn("收到无关节名的命令，已忽略", throttle_duration_sec=5.0)
             return
 
@@ -409,6 +504,18 @@ class OneroTopicBridge(Node):
             if not self._enabled:
                 # 已失能：不接受新目标，避免 _cmd_pos 悄悄漂到别处，
                 # 使能时再对齐当前位置
+                return
+            received_s = time.monotonic()
+            self._velocity_ff.capture(
+                msg.name, msg.position, msg.velocity,
+                stamp_ns=msg.header.stamp.sec * 1_000_000_000 + msg.header.stamp.nanosec,
+                now_s=received_s, now_ros_ns=self.get_clock().now().nanoseconds,
+            )
+            if self._velocity_ff.reason in ("out_of_order", "stale_header"):
+                self.get_logger().warn(
+                    "命令时间戳过期或乱序，已忽略该位置帧并将速度前馈归零",
+                    throttle_duration_sec=5.0,
+                )
                 return
             for name, pos in zip(msg.name, msg.position):
                 i = self._idx.get(name)
@@ -428,7 +535,7 @@ class OneroTopicBridge(Node):
                 self._cmd_pos[i] = value
                 accepted += 1
             if accepted:
-                self._last_cmd_stamp = time.monotonic()
+                self._last_cmd_stamp = received_s
 
     # ─── 控制循环 ────────────────────────────────────────────────────
 
@@ -444,6 +551,9 @@ class OneroTopicBridge(Node):
             with self._lock:
                 cmd = list(self._cmd_pos)
                 command_stamp = self._last_cmd_stamp
+                input_velocity, velocity, velocity_reason = self._velocity_ff.sample(
+                    now_s=time.monotonic(), now_ros_ns=self.get_clock().now().nanoseconds,
+                )
                 self._cycle_missed_joints = []
 
             state = None
@@ -464,7 +574,7 @@ class OneroTopicBridge(Node):
                         if not self._enabled:
                             continue
                         state = self._backend.servoj(
-                            cmd, kp=self._kp, kd=self._kd, velocities=[0.0] * self._n
+                            cmd, kp=self._kp, kd=self._kd, velocities=velocity
                         )
                         applied = self._backend.last_command
                     io_end = time.monotonic()
@@ -497,11 +607,22 @@ class OneroTopicBridge(Node):
                         "io_s": io_end - io_start,  # SDK servo incl. gravity, limits and CAN I/O
                         "joint_names": self._joint_names,
                         "sdk_input_position": cmd,
+                        "input_velocity": input_velocity,
+                        "sdk_input_velocity": velocity,
+                        "velocity_feedforward": self._velocity_ff.enabled,
+                        "velocity_feedforward_scale": list(self._velocity_ff.scale),
+                        "velocity_feedforward_status": velocity_reason,
                         "command_position": applied["position"] if applied else (
                             cmd if self._simulate else None),
                         "raw_command_position": applied["raw_position"] if applied else None,
-                        "command_velocity": applied["velocity"] if applied else None,
+                        "command_velocity": applied["velocity"] if applied else (
+                            velocity if self._simulate else None),
+                        "command_kp": applied["kp"] if applied else None,
+                        "command_kd": applied["kd"] if applied else None,
                         "command_torque_ff": applied["torque_ff"] if applied else None,
+                        "requested_torque_ff": applied["requested_torque_ff"] if applied else None,
+                        "sdk_torque_ff": applied["sdk_torque_ff"] if applied else None,
+                        "sdk_ff_limited": applied["sdk_ff_limited"] if applied else None,
                         "bridge_ff_limited": applied["bridge_ff_limited"] if applied else None,
                         "gravity_compensation": self._gravity_compensation,
                         "kp": getattr(self, "_kp", None),
@@ -604,13 +725,37 @@ class OneroTopicBridge(Node):
 
 
 def main(args=None) -> None:
+    from rclpy.executors import MultiThreadedExecutor, ExternalShutdownException
     rclpy.init(args=args)
     node = OneroTopicBridge()
+    gripper = None
+    executor = MultiThreadedExecutor(num_threads=3)
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
+        if node.get_parameter("gripper_model").value == "woan_picker":
+            from .woan_gripper import WoanGripperController
+            gripper = WoanGripperController(
+                device=node._backend.gripper if node._backend is not None else None,
+                simulate=node._simulate,
+                allow_execution=bool(node.get_parameter("allow_gripper_execution").value),
+                activate_on_start=bool(node.get_parameter("activate_gripper_on_start").value),
+                closed_sdk_opening=float(node.get_parameter("gripper_closed_sdk_opening").value),
+                open_sdk_opening=float(node.get_parameter("gripper_open_sdk_opening").value),
+                calibration_file=node._gripper_calibration_file,
+                arm_model=str(node.get_parameter("model").value),
+                can_channel=str(node.get_parameter("can_channel").value),
+                embedded=True,
+            )
+            executor.add_node(gripper)
+        executor.spin()
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
+        if gripper is not None:
+            gripper.stop()
+        executor.shutdown(timeout_sec=2.)
+        if gripper is not None:
+            gripper.destroy_node()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

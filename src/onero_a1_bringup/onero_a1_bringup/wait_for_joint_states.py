@@ -16,6 +16,29 @@ DEFAULT_JOINTS = [
 ]
 
 
+class JointStateCache:
+    """Merge standard partial JointState publishers without refreshing old joints."""
+    def __init__(self, names):
+        self.names = list(names)
+        self.values = {}
+
+    def update(self, msg, now_s):
+        stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        if not -.1 <= now_s-stamp <= 1.:
+            return None
+        for name, value in zip(msg.name, msg.position):
+            if name in self.names:
+                if not math.isfinite(value):
+                    self.values.pop(name, None)
+                    continue
+                previous = self.values.get(name)
+                if previous is None or stamp >= previous[1]:
+                    self.values[name] = (float(value), stamp)
+        if not all(n in self.values and -.1 <= now_s-self.values[n][1] <= 1. for n in self.names):
+            return None
+        return {n:self.values[n][0] for n in self.names}
+
+
 class WaitForJointStates(Node):
     """Exit only after the state broadcaster reflects all live joint positions."""
 
@@ -23,7 +46,11 @@ class WaitForJointStates(Node):
         super().__init__("wait_for_valid_joint_states")
         self.declare_parameter("joints", DEFAULT_JOINTS)
         self.declare_parameter("topic", "/joint_states")
+        self.declare_parameter("gripper_model", "none")
         self._joints = list(self.get_parameter("joints").value)
+        if self.get_parameter("gripper_model").value == "woan_picker":
+            self._joints.append("woan_picker_left_finger_joint")
+        self._cache = JointStateCache(self._joints)
         self._topic = str(self.get_parameter("topic").value)
         self._valid_messages = 0
         self.ready = False
@@ -36,12 +63,8 @@ class WaitForJointStates(Node):
         )
 
     def _on_state(self, msg: JointState) -> None:
-        positions = {
-            name: float(msg.position[i])
-            for i, name in enumerate(msg.name)
-            if i < len(msg.position)
-        }
-        if not all(name in positions and math.isfinite(positions[name]) for name in self._joints):
+        positions = self._cache.update(msg, self.get_clock().now().nanoseconds*1e-9)
+        if positions is None:
             self._valid_messages = 0
             return
 

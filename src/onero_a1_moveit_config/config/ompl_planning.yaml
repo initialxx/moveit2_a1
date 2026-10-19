@@ -26,6 +26,9 @@ response_adapters:
   - default_planning_response_adapters/DisplayMotionPath
 
 arm:
+  # Keep orientation-constrained requests in joint space; the A1 KDL solver
+  # otherwise struggles with pose-space interpolation near straight-arm poses.
+  enforce_joint_model_state_space: true
   default_planner_config: RRTConnect
   planner_configs:
     - RRTConnect
@@ -37,3 +40,8 @@ arm:
     - AnytimePathShortening
   projection_evaluator: joints(joint1-a1_r,joint2-a1_r)
   longest_valid_segment_fraction: 0.005
+
+gripper:
+  enforce_joint_model_state_space: true
+  default_planner_config: RRTConnect
+  planner_configs: [RRTConnect]

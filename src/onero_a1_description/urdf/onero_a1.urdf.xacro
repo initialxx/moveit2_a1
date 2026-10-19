@@ -19,6 +19,7 @@
   <!-- true  = 纯模拟（mock_components），MoveIt 可规划但无外部进程
        false = 经 topic_based_ros2_control 桥接到真实/仿真的 Python 驱动节点 -->
   <xacro:arg name="use_fake_hardware" default="true"/>
+  <xacro:arg name="gripper_model" default="none"/>
 
   <!-- topic 桥的两个话题名（仅 use_fake_hardware:=false 时生效） -->
   <xacro:arg name="joint_commands_topic" default="/robot_joint_commands"/>
@@ -26,6 +27,9 @@
 
   <!-- ─── 机器人本体（自动生成，勿手改）──────────────────────────── -->
   <xacro:include filename="onero_a1_body.urdf"/>
+  <xacro:if value="${'$(arg gripper_model)' == 'woan_picker'}">
+    <xacro:include filename="onero_woan_picker.urdf"/>
+  </xacro:if>
 
   <!-- ─── ros2_control 硬件配置 ──────────────────────────────────── -->
   <xacro:include filename="onero_a1.ros2_control.xacro"/>

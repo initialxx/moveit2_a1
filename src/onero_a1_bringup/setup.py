@@ -27,6 +27,8 @@ setup(
             "topic_bridge = onero_a1_bringup.topic_bridge:main",
             "health_watchdog = onero_a1_bringup.health_watchdog:main",
             "wait_for_joint_states = onero_a1_bringup.wait_for_joint_states:main",
+            "load_environment = onero_a1_bringup.environment:main",
+            "woan_gripper_controller = onero_a1_bringup.woan_gripper:main",
         ],
     },
 )

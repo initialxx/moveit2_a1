@@ -43,7 +43,7 @@ cleanup() {
 run_variant() {
   local label="$1" log="$LOGDIR/exp_srdf_${label}.launch.log"
   cleanup
-  ros2 launch onero_a1_moveit_config demo.launch.py \
+  ros2 launch onero_a1_moveit_config moveit.launch.py \
       rviz:=false use_fake_hardware:=true > "$log" 2>&1 &
 
   local i

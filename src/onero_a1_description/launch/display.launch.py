@@ -29,12 +29,14 @@ def generate_launch_description():
     use_rviz = LaunchConfiguration("use_rviz")
 
     robot_description = ParameterValue(
-        Command(["xacro ", xacro_file, " use_fake_hardware:=", use_fake_hardware]),
+        Command(["xacro ", xacro_file, " use_fake_hardware:=", use_fake_hardware,
+                 " gripper_model:=", LaunchConfiguration("gripper_model")]),
         value_type=str,
     )
 
     return LaunchDescription(
         [
+            DeclareLaunchArgument("gripper_model", default_value="woan_picker", choices=["none", "woan_picker"]),
             DeclareLaunchArgument(
                 "use_fake_hardware",
                 default_value="true",

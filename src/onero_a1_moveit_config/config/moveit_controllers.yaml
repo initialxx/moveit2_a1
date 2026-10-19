@@ -33,3 +33,11 @@ moveit_simple_controller_manager:
       - joint5-a1_r
       - joint6-a1_r
       - joint7-a1_r
+
+  gripper_controller:
+    action_ns: gripper_cmd
+    type: GripperCommand
+    default: true
+    command_joint: woan_picker_left_finger_joint
+    joints:
+      - woan_picker_left_finger_joint

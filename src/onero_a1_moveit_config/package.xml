@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>
     MoveIt 2 configuration for the Onero A1 7-DOF robot arm.
-    SRDF is generated from the authoritative file in onero-sdk
+    SRDF is generated from the SDK model with adjacent-link collision exclusions
     (see tools/sync_srdf_from_sdk.py).
   </description>
   <maintainer email="dev@onerobot.com">Onero Robotics</maintainer>

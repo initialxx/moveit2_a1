@@ -21,6 +21,7 @@ arm_controller:
   ros__parameters:
     command_interfaces:
       - position
+      - velocity
     state_interfaces:
       - position
       - velocity
@@ -36,7 +37,8 @@ arm_controller:
     # initial value. In real-hardware mode the state starts as NaN and the
     # launch file waits for the joint-state broadcaster before activating JTC.
     set_last_command_interface_value_as_state_on_activation: false
-    allow_nonzero_velocity_at_trajectory_end: true
+    # Final point must stop: a nonzero velocity must not persist during hold.
+    allow_nonzero_velocity_at_trajectory_end: false
     constraints:
       # Require real feedback to converge; zero tolerances would disable these
       # checks and allow the controller to report success with a large error.

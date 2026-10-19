@@ -1,0 +1,84 @@
+{
+  "source": "onero-sdk/tools/woan_picker.urdf",
+  "source_sha256": "890812892f29250b54f5678b3b9c8ac47955cee2adf3baadcd5fe32200cfd87d",
+  "tool_model": {
+    "name": "woan_picker",
+    "urdf": "woan_picker.urdf",
+    "mount_xyz": [
+      0.0,
+      0.0,
+      0.07
+    ],
+    "mount_rpy": [
+      -1.5708,
+      0.0,
+      -1.5708
+    ],
+    "mass": 0.14679748577740057,
+    "cog": [
+      -0.0001852472,
+      -1.09078e-05,
+      0.0838795628
+    ],
+    "tcp": null,
+    "animated": true,
+    "opening_range": [
+      0.0,
+      1.0
+    ],
+    "opening_default": 0.0,
+    "opening_joints": [
+      {
+        "suffix": "left_finger_joint",
+        "offset": 0.0,
+        "scale": 1.1
+      },
+      {
+        "suffix": "left_finger_joint_2",
+        "offset": 0.0,
+        "scale": 0.37
+      },
+      {
+        "suffix": "left_finger_joint_3",
+        "offset": 0.0,
+        "scale": 1.34
+      },
+      {
+        "suffix": "left_finger_joint_4",
+        "offset": 0.0,
+        "scale": 1.27
+      },
+      {
+        "suffix": "right_finger_joint",
+        "offset": 0.0,
+        "scale": 1.1
+      },
+      {
+        "suffix": "right_finger_joint_2",
+        "offset": 0.0,
+        "scale": 0.37
+      },
+      {
+        "suffix": "right_finger_joint_3",
+        "offset": 0.0,
+        "scale": 1.34
+      },
+      {
+        "suffix": "right_finger_joint_4",
+        "offset": 0.0,
+        "scale": 1.27
+      }
+    ]
+  },
+  "mesh_sha256": {
+    "meshes/grippers/woan_picker/base_link.STL": "1749a4d15f2f69080f6f5e84461e318ec5157040b82f56cd0f23b76743b7a7bc",
+    "meshes/grippers/woan_picker/Link_L1.STL": "6da0382135977bfaeade36bbd03a185b06074d4158a3cf11b54fcbee9c4b3dd7",
+    "meshes/grippers/woan_picker/Link_L2.STL": "f8ee5dfab89703b8451b81967c7e02c533c4daabca44389e9908f52b96ff02e3",
+    "meshes/grippers/woan_picker/Link_L3.STL": "8d4183cbfa926bc6aec65d67ae15197d0b383f00f3f3a0404ab72670af5e1043",
+    "meshes/grippers/woan_picker/Link_L4.STL": "bdab510df0466cbdaffcba763e549c08a25a9113a30a4e7069f17c06dd03d879",
+    "meshes/grippers/woan_picker/Link_R1.STL": "b080d275d4aa6e9f4156b9130821e17eb856f119ea0124b46798ee13f4160704",
+    "meshes/grippers/woan_picker/Link_R2.STL": "e206fa332f6012c86b406178a777b07dd989cefec0afb1fc57d05274db143567",
+    "meshes/grippers/woan_picker/Link_R3.STL": "6ed20a3d57900a82fb3fea29ce768c802de59218ddbf0639502445d9be67b20f",
+    "meshes/grippers/woan_picker/Link_R4.STL": "91f5f812adcb6950d0d4b9dbd43b0f60579e384748b812198b5ec544e7a688a5"
+  }
+}
