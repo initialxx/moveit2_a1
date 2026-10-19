@@ -3,16 +3,12 @@
 包含：ros2_control（含话题桥适配层） + move_group + RViz
       + 静态 TF world->base_link
 
-三种模式（见 onero_a1_bringup/launch/bringup.launch.py 的说明）:
+两种模式：
 
-    # 1) 纯 MoveIt 模拟（默认）—— 不涉及 armsdk，验证 MoveIt 配置
+    # 1) 模拟（默认）：经过话题桥，不连接 CAN
     ros2 launch onero_a1_moveit_config moveit.launch.py
 
-    # 2) 全链路联调（无真机）★ 推荐的第一步
-    ros2 launch onero_a1_moveit_config moveit.launch.py \
-        hardware_mode:=sim
-
-    # 3) 真机
+    # 2) 真机
     ros2 launch onero_a1_moveit_config moveit.launch.py \
         hardware_mode:=real
 
@@ -42,18 +38,12 @@ def generate_launch_description():
     desc_pkg = get_package_share_directory("onero_a1_description")
     bringup_pkg = get_package_share_directory("onero_a1_bringup")
 
-    use_fake_hardware = LaunchConfiguration("use_fake_hardware")
-    simulate = LaunchConfiguration("simulate")
     use_rviz = LaunchConfiguration("rviz")
 
     args = [
         OpaqueFunction(function=configure_hardware_mode),
-        DeclareLaunchArgument("hardware_mode", default_value="fake", choices=["fake", "sim", "real"],
-                             description="fake: 纯 MoveIt 模拟；sim: 话题桥模拟；real: 真机 CAN"),
-        DeclareLaunchArgument("use_fake_hardware", default_value="true",
-                             description="旧命令兼容参数；新命令使用 hardware_mode"),
-        DeclareLaunchArgument("simulate", default_value="true",
-                             description="旧命令兼容参数；新命令使用 hardware_mode"),
+        DeclareLaunchArgument("hardware_mode", default_value="sim", choices=["sim", "real"],
+                             description="sim: 话题桥模拟，不连接 CAN；real: SDK 真机 CAN"),
         DeclareLaunchArgument("rviz", default_value="true"),
         DeclareLaunchArgument("can_channel", default_value="can0"),
         DeclareLaunchArgument("model", default_value="A1R"),
@@ -68,7 +58,7 @@ def generate_launch_description():
         DeclareLaunchArgument("mounting", default_value="upright"),
         DeclareLaunchArgument(
             "velocity_feedforward", default_value=mode_default("velocity_feedforward"),
-            description="全部七关节速度前馈；默认 real=true、fake/sim=false；可显式覆盖"),
+            description="全部七关节速度前馈；默认 real=true、sim=false；可显式覆盖"),
         DeclareLaunchArgument(
             "velocity_feedforward_scale", default_value="[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]",
             description="兼容参数，仅接受全 1；使用 velocity_feedforward 统一开关"),
@@ -82,7 +72,7 @@ def generate_launch_description():
         DeclareLaunchArgument("gripper_calibration_file", default_value="",
                              description="默认按型号/CAN在ROS_HOME中保存并加载夹爪标定"),
         DeclareLaunchArgument("gravity_compensation", default_value=mode_default("gravity_compensation"),
-                             description="重力补偿默认 real=true、fake/sim=false；显式传参可覆盖"),
+                             description="重力补偿默认 real=true、sim=false；显式传参可覆盖"),
         DeclareLaunchArgument(
             "allow_execution", default_value="true",
             description="false: 仅规划预览，不启动轨迹控制器；真机 SDK 仍使能保持当前位置",
@@ -98,7 +88,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "control_rate",
             default_value=mode_default("control_rate"),
-            description="话题桥控制频率；默认 real=100 Hz，sim=200 Hz，fake 不启动话题桥",
+            description="话题桥控制频率；默认 real=100 Hz，sim=200 Hz",
         ),
         DeclareLaunchArgument(
             "rviz_config", default_value="moveit.rviz",
@@ -108,10 +98,7 @@ def generate_launch_description():
 
     def prepare_environment(context):
         path = LaunchConfiguration("environment_file").perform(context).strip()
-        real_hardware = (
-            not IfCondition(use_fake_hardware).evaluate(context)
-            and not IfCondition(simulate).evaluate(context)
-        )
+        real_hardware = LaunchConfiguration("hardware_mode").perform(context) == "real"
         allow_execution = IfCondition(LaunchConfiguration("allow_execution")).evaluate(context)
         if path:
             from onero_a1_bringup.environment import load_environment
@@ -149,7 +136,6 @@ def generate_launch_description():
         .robot_description(
             file_path=os.path.join(desc_pkg, "urdf", "onero_a1.urdf.xacro"),
             mappings={
-                "use_fake_hardware": use_fake_hardware,
                 "joint_commands_topic": "/robot_joint_commands",
                 "joint_states_topic": "/robot_joint_states",
                 "gripper_model": LaunchConfiguration("gripper_model"),
@@ -174,8 +160,6 @@ def generate_launch_description():
         ),
         launch_arguments={
             "hardware_mode": LaunchConfiguration("hardware_mode"),
-            "use_fake_hardware": use_fake_hardware,
-            "simulate": simulate,
             "can_channel": LaunchConfiguration("can_channel"),
             "model": LaunchConfiguration("model"),
             "kp": LaunchConfiguration("kp"),

@@ -16,7 +16,7 @@
 
   <buildtool_depend>ament_python</buildtool_depend>
 
-  <!-- 注意：真机模式（simulate:=false）运行时还需要 onero-sdk（PyPI 包）。
+  <!-- 注意：真机模式（hardware_mode:=real）运行时还需要 onero-sdk（PyPI 包）。
        它目前不是 rosdep key，因此**故意不在此声明** —— 声明了会让
        `rosdep install` 与 ROS build farm 直接失败。
        发布前应先向 rosdistro 提 rosdep key：

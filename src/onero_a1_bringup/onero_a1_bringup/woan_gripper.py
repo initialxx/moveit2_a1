@@ -29,6 +29,30 @@ from .gripper_coordinates import GripperCalibration, load_calibration, save_cali
 JOINT = 'woan_picker_left_finger_joint'
 STROKE = 1.1
 OPENING_SPEED = .5  # normalized opening/s; matches the imported URDF rate cap
+# MoveIt's joint goal region can place a planned endpoint within 0.005 rad
+# of full open/close. Preserve the calibrated endpoint command in that band.
+ENDPOINT_TOLERANCE = .005
+
+
+def _target_opening(position_rad):
+    """Convert a model goal to opening, including its endpoint goal region."""
+    if not math.isfinite(position_rad) or not 0 <= position_rad <= STROKE:
+        raise ValueError(f'夹爪目标必须在 0..{STROKE} rad 内')
+    if position_rad <= ENDPOINT_TOLERANCE:
+        return 0.
+    if STROKE-position_rad <= ENDPOINT_TOLERANCE:
+        return 1.
+    return position_rad / STROKE
+
+
+def _feedback_after_command(device, previous_stamp):
+    """Recover one missing command reply with a passive query, never a resend."""
+    state = device.state
+    if state.timestamp <= previous_stamp:
+        state = device.refresh()
+    if state.timestamp <= previous_stamp:
+        raise RuntimeError('夹爪目标发送后未取得新反馈')
+    return state
 
 
 class WoanGripperController(Node):
@@ -257,14 +281,22 @@ class WoanGripperController(Node):
     def _goal(self, request):
         command = request.command
         with self._lock:
-            valid = (self._active and not self._stopping and not self._reserved and self._fresh()
-                     and math.isfinite(command.position) and 0 <= command.position <= STROKE
-                     and math.isfinite(command.max_effort) and command.max_effort == 0.)
-            if valid:
+            reasons = []
+            if not self._active or self._stopping:
+                reasons.append('动作接口未激活或正在停止')
+            if self._reserved:
+                reasons.append('已有动作或标定占用')
+            if not self._fresh():
+                reasons.append(f'反馈不可用：{self._error or "反馈过期"}')
+            if not math.isfinite(command.position) or not 0 <= command.position <= STROKE:
+                reasons.append(f'目标 {command.position} 超出 0..{STROKE} rad')
+            if not math.isfinite(command.max_effort) or command.max_effort != 0.:
+                reasons.append('max_effort 当前只支持 0')
+            if not reasons:
                 self._reserved = True
-        if not valid:
-            self.get_logger().warning('拒绝夹爪目标：检查执行开关、反馈/故障、动作占用、0..1.1 rad 范围；max_effort 当前只支持 0')
-        return GoalResponse.ACCEPT if valid else GoalResponse.REJECT
+        if reasons:
+            self.get_logger().warning('拒绝夹爪目标：' + '；'.join(reasons))
+        return GoalResponse.REJECT if reasons else GoalResponse.ACCEPT
 
     def _hold_measured(self):
         with self._lock:
@@ -279,7 +311,7 @@ class WoanGripperController(Node):
         reached = False
         try:
             with self._lock:
-                target = goal.request.command.position / STROKE
+                target = _target_opening(goal.request.command.position)
                 self._target = self._calibration.command_from_sdk(
                     self._calibration.target_to_sdk(target))
                 self._sent = self._calibration.command_from_sdk(self._sdk_opening)
@@ -399,9 +431,7 @@ class WoanGripperController(Node):
                     else:
                         sent += max(-command_speed*dt, min(command_speed*dt, target-sent))
                         self._device.set_position(self._calibration.to_sdk(sent))
-                    state = self._device.state
-                    if state.timestamp <= before:
-                        raise RuntimeError('夹爪目标发送后未取得新反馈')
+                    state = _feedback_after_command(self._device, before)
                 else:
                     state = self._device.refresh()  # Passive register query; no enable or position command.
                 if state.fault_code:

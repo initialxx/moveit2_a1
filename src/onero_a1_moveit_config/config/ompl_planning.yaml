@@ -25,6 +25,12 @@ response_adapters:
   - default_planning_response_adapters/ValidateSolution
   - default_planning_response_adapters/DisplayMotionPath
 
+# TOTG 可在生成速度曲线时改变关节空间路径。限制每个关节允许的偏移
+# （转动关节单位 rad），减少近桌面路径在处理后发生碰撞的风险。
+# 这不是末端精度或障碍物安全间距；最终仍由 ValidateSolution 检查碰撞。
+totg:
+  path_tolerance: 0.005
+
 arm:
   # Keep orientation-constrained requests in joint space; the A1 KDL solver
   # otherwise struggles with pose-space interpolation near straight-arm poses.
@@ -39,7 +45,8 @@ arm:
     - BiTRRT
     - AnytimePathShortening
   projection_evaluator: joints(joint1-a1_r,joint2-a1_r)
-  longest_valid_segment_fraction: 0.005
+  # 更细地检查关节空间路径，适用于薄底板及夹爪手指等较小碰撞几何。
+  longest_valid_segment_fraction: 0.001
 
 gripper:
   enforce_joint_model_state_space: true

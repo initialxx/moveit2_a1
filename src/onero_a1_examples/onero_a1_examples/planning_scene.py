@@ -1,0 +1,52 @@
+"""规划场景：添加会挡住原路径的球体，重新规划避让，再删除球体。"""
+from moveit_msgs.msg import CollisionObject, PlanningScene
+from moveit_msgs.srv import ApplyPlanningScene
+from shape_msgs.msg import SolidPrimitive
+from .support import MoveItError, finite, finish_arm_plan, positive, run_example
+
+
+def configure(parser):
+    parser.add_argument("--scene-delta", type=finite, default=.4, help="joint4 目标变化，rad")
+    parser.add_argument("--obstacle-radius", type=positive, default=.01, help="球体半径，米")
+
+
+def set_obstacle(node, pose=None):
+    obj = CollisionObject(id=node.scene_id)
+    obj.header.frame_id = node.args.frame
+    obj.operation = CollisionObject.REMOVE if pose is None else CollisionObject.ADD
+    if pose is not None:
+        obj.primitives = [SolidPrimitive(type=SolidPrimitive.SPHERE, dimensions=[node.args.obstacle_radius])]
+        obj.primitive_poses = [pose]
+    scene = PlanningScene(is_diff=True)
+    scene.robot_state.is_diff = True
+    scene.world.collision_objects = [obj]
+    result = node.call(ApplyPlanningScene, "/apply_planning_scene", ApplyPlanningScene.Request(scene=scene))
+    if not result.success:
+        raise MoveItError("MoveIt 拒绝更新碰撞场景")
+    node.scene_added = pose is not None
+
+
+def example(node):
+    start = node.start
+    target = {**start, "joint4-a1_r": start["joint4-a1_r"]+node.args.scene_delta}
+    goal = node.joint_constraints(target)
+    baseline = node.plan(start, goal).joint_trajectory
+    selected = False
+    for fraction in (.5, .3, .7):
+        if not baseline.points:
+            break
+        point = baseline.points[int((len(baseline.points)-1)*fraction)]
+        middle = dict(zip(baseline.joint_names, point.positions))
+        set_obstacle(node, node.fk(middle))
+        # Ensure the test blocks the original route while leaving both ends usable.
+        if node.validity(start).valid and node.validity(target).valid and not node.validity(middle).valid:
+            selected = True
+            break
+    if not selected:
+        raise MoveItError("该起点无法布置有效中途障碍物；调整 --scene-delta 或 --obstacle-radius")
+    finish_arm_plan(node, node.plan(start, goal))
+    set_obstacle(node)
+
+
+def main(args=None):
+    return run_example("planning_scene", __doc__, configure, example, args)

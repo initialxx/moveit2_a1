@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>onero_a1_demos</name>
+  <name>onero_a1_common</name>
   <version>0.1.0</version>
-  <description>Planning-first MoveIt examples and model checks for the Onero A1 arm.</description>
+  <description>Shared MoveIt ROS clients for Onero A1 applications and tools.</description>
   <maintainer email="dev@onerobot.com">Onero Robotics</maintainer>
   <license>Apache-2.0</license>
   <buildtool_depend>ament_python</buildtool_depend>
@@ -12,10 +12,5 @@
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>shape_msgs</exec_depend>
   <exec_depend>moveit_msgs</exec_depend>
-  <exec_depend>rosidl_runtime_py</exec_depend>
-  <exec_depend>onero_a1_moveit_config</exec_depend>
-  <exec_depend>onero_a1_bringup</exec_depend>
-  <exec_depend>python3-numpy</exec_depend>
-  <exec_depend>python3-scipy</exec_depend>
   <export><build_type>ament_python</build_type></export>
 </package>

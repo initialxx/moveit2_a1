@@ -15,7 +15,7 @@ BRIDGE_LOG="${WS}/.logs/bridge_restart.log"
 
 echo "=== 启动完整链路 ==="
 ros2 launch onero_a1_moveit_config moveit.launch.py \
-    rviz:=false use_fake_hardware:=false simulate:=true > "${LOG}" 2>&1 &
+    rviz:=false hardware_mode:=sim > "${LOG}" 2>&1 &
 LAUNCH_PID=$!
 
 timeout 90 bash -c 'until ros2 control list_controllers 2>/dev/null | grep -q arm_controller; do sleep 2; done' >/dev/null

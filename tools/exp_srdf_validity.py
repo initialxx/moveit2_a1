@@ -6,7 +6,7 @@
 只有 10 对，而 armsdk 的权威文件 `onero_sdk/urdf/A1/a1_r.srdf` 有 28 对。
 排除数量本身不能判断碰撞配置是否正确。是否误报需要核对几何接触，
 不能仅因更多排除使规划通过，就将所有连杆对标成 Never。
-当前生成器只排除直接相邻连杆；功能验收使用 onero_a1_demos collision/scene。
+当前生成器只排除直接相邻连杆；功能验收使用 onero_a1_examples collision_check/planning_scene。
 
 本脚本不修改任何配置，只**测量**当前加载的 SRDF 下的状态有效性，
 把「碰撞矩阵差异」从「静态 diff」升级成「可观测的功能影响」。

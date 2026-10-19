@@ -27,8 +27,7 @@
   <exec_depend>joint_state_publisher_gui</exec_depend>
   <exec_depend>rviz2</exec_depend>
 
-  <!-- ros2_control 硬件插件
-       mock_components/GenericSystem 由 hardware_interface 提供 -->
+  <!-- sim / real 共用的 ros2_control 话题硬件插件 -->
   <exec_depend>hardware_interface</exec_depend>
   <exec_depend>joint_state_topic_hardware_interface</exec_depend>
 

@@ -5,7 +5,7 @@
 #       两份 SRDF 除 disable_collisions 外完全一致（已 diff 验证），
 #       因此差异只能归因于碰撞矩阵。
 #
-# 测量用 use_fake_hardware:=true（纯规划，不需要话题桥），启动更快。
+# 测量使用 sim 模式，不连接 CAN。
 #
 # 注意：本脚本会临时改写 src 下的 SRDF，结束后用 git 恢复。
 #       若中途中断，请手动执行 git checkout -- <srdf 路径>。
@@ -44,7 +44,7 @@ run_variant() {
   local label="$1" log="$LOGDIR/exp_srdf_${label}.launch.log"
   cleanup
   ros2 launch onero_a1_moveit_config moveit.launch.py \
-      rviz:=false use_fake_hardware:=true > "$log" 2>&1 &
+      rviz:=false hardware_mode:=sim > "$log" 2>&1 &
 
   local i
   for i in $(seq 1 60); do

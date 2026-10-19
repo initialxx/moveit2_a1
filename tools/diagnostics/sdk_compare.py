@@ -11,7 +11,6 @@ import sys
 import threading
 import time
 from types import SimpleNamespace
-import xml.etree.ElementTree as ET
 
 import numpy as np
 
@@ -37,39 +36,12 @@ def write_new(path, data):
 
 def check_planning_model(node, report):
     """Allow a CAN-free planning server only when geometry/SRDF/limits agree exactly."""
-    if node.report["model_fingerprint"] == report["model_fingerprint"]:
-        return
-    if node.report["hardware_plugins"] != ["mock_components/GenericSystem"]:
+    if node.report["model_fingerprint"] != report["model_fingerprint"]:
         raise ValueError("当前 MoveIt 模型与 A 轮不同")
-    from moveit_configs_utils import MoveItConfigsBuilder
-    from ament_index_python.packages import get_package_share_directory
-    from rclpy.parameter import Parameter
-    from rosidl_runtime_py.convert import message_to_ordereddict
-    config = (MoveItConfigsBuilder("onero_a1",package_name="onero_a1_moveit_config")
-              .robot_description(file_path=str(Path(get_package_share_directory("onero_a1_description"))/"urdf/onero_a1.urdf.xacro"),
-                                 mappings={"use_fake_hardware":"false","gripper_model":"none","joint_commands_topic":"/robot_joint_commands",
-                                           "joint_states_topic":"/robot_joint_states"})
-              .robot_description_semantic(file_path="config/onero_a1.srdf.xacro", mappings={"gripper_model":"none"})
-              .joint_limits(file_path="config/joint_limits.yaml").planning_pipelines(pipelines=["ompl"])
-              .to_moveit_configs())
-    values = [config.robot_description["robot_description"],config.robot_description_semantic["robot_description_semantic"]]
-    limits = config.joint_limits["robot_description_planning"]["joint_limits"]
-    for name in JOINTS:
-        for field in ("has_velocity_limits","max_velocity","has_acceleration_limits","max_acceleration"):
-            values.append(limits[name][field])
-    encoded = [message_to_ordereddict(Parameter("p",value=v).get_parameter_value()) for v in values]
-    if fingerprint(encoded) != report["model_fingerprint"] or encoded[1:] != node.model_parameter_values[1:]:
-        raise ValueError("A 轮的模型、SRDF 或规划限位已改变")
-    def geometry(xml):
-        root = ET.fromstring(xml)
-        for control in root.findall("ros2_control"):root.remove(control)
-        return ET.canonicalize(ET.tostring(root,encoding="unicode"),strip_text=True)
-    if geometry(values[0]) != geometry(node.model_parameter_values[0]["string_value"]):
-        raise ValueError("只读规划服务的机械几何与 A 轮不同")
 
 
 def export_bundle(args):
-    from .runner import Demo
+    from .client import DiagnosticClient
     from rcl_interfaces.srv import GetParameters
     from moveit_msgs.msg import PlanningSceneComponents
     from moveit_msgs.srv import GetPlanningScene
@@ -85,7 +57,7 @@ def export_bundle(args):
                               velocity=.05, acceleration=.05, position_tolerance=.005,
                               orientation_tolerance=.05)
     rclpy.init(args=[])
-    node = Demo(options)
+    node = DiagnosticClient(options)
     try:
         node.load_model()
         check_planning_model(node,report)
@@ -168,14 +140,14 @@ def show_bundle(bundle):
 
 def prepare_bundle(args):
     """Use MoveIt to return to the measured A start, rather than a startup snapshot."""
-    from .runner import Demo
+    from .client import DiagnosticClient
     from rosidl_runtime_py.convert import message_to_ordereddict
     from rclpy.signals import SignalHandlerOptions
     import rclpy
 
     bundle = validate_bundle(json.loads(args.bundle.read_text()))
     check_files(bundle)
-    output = args.output or Path(".logs/demos") / f"{time.time_ns()}-sdk_compare_prepare.json"
+    output = args.output or Path(".logs/diagnostics") / f"{time.time_ns()}-sdk_compare_prepare.json"
     if output.exists():
         raise ValueError(f"输出文件已存在：{output}")
     options = SimpleNamespace(case="sdk_compare_prepare", execute=args.execute,
@@ -183,7 +155,7 @@ def prepare_bundle(args):
                               planning_time=10.0, goal_tolerance=.01,
                               position_tolerance=.005, orientation_tolerance=.05)
     rclpy.init(args=[], signal_handler_options=SignalHandlerOptions.NO)
-    node = Demo(options)
+    node = DiagnosticClient(options)
     code = 0
     try:
         node.load_model()

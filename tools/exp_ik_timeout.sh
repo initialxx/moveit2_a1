@@ -8,7 +8,7 @@ pkill -f "move_group" 2>/dev/null; pkill -f "ros2_control_node" 2>/dev/null; sle
 source "$WS/setup_env.sh" > /dev/null 2>&1
 
 ros2 launch onero_a1_moveit_config moveit.launch.py \
-    rviz:=false use_fake_hardware:=true > "$LOG" 2>&1 &
+    rviz:=false hardware_mode:=sim > "$LOG" 2>&1 &
 
 for i in $(seq 1 60); do
   grep -q "You can start planning now" "$LOG" 2>/dev/null && break

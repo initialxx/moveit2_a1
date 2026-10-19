@@ -2,15 +2,9 @@
 <!--
   ros2_control 硬件配置
 
-  两种模式：
-    use_fake_hardware = true   ->  mock_components/GenericSystem
-                                    纯模拟，不需要任何外部进程。
-                                    用于验证 MoveIt 配置是否正确。
-
-    use_fake_hardware = false  ->  joint_state_topic_hardware_interface/JointStateTopicSystem
-                                    把 ros2_control 桥接到两个话题，
-                                    由我们的 Python 节点（armsdk 适配层）收发。
-                                    话题消息类型均为 sensor_msgs/JointState。
+  sim / real 共用 joint_state_topic_hardware_interface/JointStateTopicSystem。
+  它把 ros2_control 桥接到两个话题，由 Python 适配层模拟反馈或调用 SDK。
+  话题消息类型均为 sensor_msgs/JointState，运行模式由启动文件选择。
 
   说明：本插件来自 ros-controls 官方仓库
         https://github.com/ros-controls/topic_based_hardware_interfaces
@@ -23,50 +17,30 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:macro name="onero_a1_ros2_control"
-               params="name use_fake_hardware joint_commands_topic joint_states_topic">
+               params="name joint_commands_topic joint_states_topic">
 
     <ros2_control name="${name}" type="system">
       <hardware>
-        <xacro:if value="${use_fake_hardware}">
-          <plugin>mock_components/GenericSystem</plugin>
-          <param name="fake_sensor_commands">false</param>
-          <param name="state_following_offset">0.0</param>
-          <!-- Mirror both position and velocity; GenericSystem dynamics mode
-               rejects JTC's simultaneous position+velocity command interfaces. -->
-          <param name="calculate_dynamics">false</param>
-        </xacro:if>
-        <xacro:unless value="${use_fake_hardware}">
-          <plugin>joint_state_topic_hardware_interface/JointStateTopicSystem</plugin>
-          <param name="joint_commands_topic">${joint_commands_topic}</param>
-          <param name="joint_states_topic">${joint_states_topic}</param>
-          <!-- 命令与当前状态差小于此值时不发布；-1 表示总是发布 -->
-          <param name="trigger_joint_command_threshold">-1</param>
-        </xacro:unless>
+        <plugin>joint_state_topic_hardware_interface/JointStateTopicSystem</plugin>
+        <param name="joint_commands_topic">${joint_commands_topic}</param>
+        <param name="joint_states_topic">${joint_states_topic}</param>
+        <!-- 命令与当前状态差小于此值时不发布；-1 表示总是发布 -->
+        <param name="trigger_joint_command_threshold">-1</param>
       </hardware>
 
       <!-- 7 个关节：joint1-a1_r ... joint7-a1_r（与 armsdk 一致）
 
-           真机模式的位置命令和状态故意不设 initial_value，让 ros2_control
-           用 NaN 初始化。controller_manager 必须等到桥接层发布实测位置后
+           位置命令和状态故意不设 initial_value，让 ros2_control
+           用 NaN 初始化。controller_manager 必须等到桥接层发布有效位置后
            才能激活 arm_controller；否则 0.0 会被 JTC 当作初始保持点，
-           可能把机械臂拉向零位。桥接层会丢弃启动期间的非有限命令。
-
-           mock 模式保留 0.0 初值，供 GenericSystem 仿真使用。 -->
+           可能把机械臂拉向零位。桥接层会丢弃启动期间的非有限命令。 -->
       <xacro:macro name="onero_a1_joint" params="joint">
         <joint name="${joint}">
-          <command_interface name="position">
-            <xacro:if value="${use_fake_hardware}">
-              <param name="initial_value">0.0</param>
-            </xacro:if>
-          </command_interface>
+          <command_interface name="position"/>
           <command_interface name="velocity">
             <param name="initial_value">0.0</param>
           </command_interface>
-          <state_interface name="position">
-            <xacro:if value="${use_fake_hardware}">
-              <param name="initial_value">0.0</param>
-            </xacro:if>
-          </state_interface>
+          <state_interface name="position"/>
           <state_interface name="velocity">
             <param name="initial_value">0.0</param>
           </state_interface>

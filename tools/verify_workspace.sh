@@ -37,7 +37,7 @@ sleep 1
 source "$WS_DIR/setup_env.sh" >/dev/null 2>&1
 echo "=== [1/4] 启动 demo（话题桥模式 / 不连真机）==="
 ros2 launch onero_a1_moveit_config moveit.launch.py \
-    rviz:=false use_fake_hardware:=false simulate:=true > "$LAUNCH_LOG" 2>&1 &
+    rviz:=false hardware_mode:=sim > "$LAUNCH_LOG" 2>&1 &
 LAUNCH_PID=$!
 
 # 等待 move_group 就绪，最多 60s

@@ -11,9 +11,9 @@ import xml.etree.ElementTree as ET
 import numpy as np
 from scipy.spatial.transform import Rotation
 
+from onero_a1_common.constants import JOINTS
 from .trial_records import fingerprint
 
-JOINTS = [f"joint{i}-a1_r" for i in range(1, 8)]
 CONTROL_KEYS = ("model", "mounting", "can_channel", "simulate", "with_gripper",
                 "gravity_compensation", "control_rate", "kp", "kd",
                 "velocity_feedforward", "velocity_feedforward_scale",

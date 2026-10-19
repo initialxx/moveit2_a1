@@ -16,6 +16,11 @@ from onero_sdk.zero_offset_backend import ZeroOffsetBackend
 from .can_ownership import ChannelOwnership
 
 
+# Gripper register/MIT replies share the arm's transport and lock, but need
+# their own response budget rather than the arm's 3 ms batch deadline.
+GRIPPER_FEEDBACK_TIMEOUT = .01
+
+
 class _DeferredBackend(ArmBackend):
     """Lazy CAN ownership plus observation of commands after SDK limiting."""
 
@@ -113,7 +118,7 @@ class SDKArmSession:
         self.gripper = None
         if gripper_model == "woan_picker":
             from onero_sdk.grippers import OneroGripper
-            self.gripper = OneroGripper(model=model_name, feedback_timeout=.003)
+            self.gripper = OneroGripper(model=model_name, feedback_timeout=GRIPPER_FEEDBACK_TIMEOUT)
         elif gripper_model != "none":
             raise ValueError(f"Unsupported gripper_model: {gripper_model}")
         self._transport = _DeferredBackend(

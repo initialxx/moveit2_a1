@@ -61,6 +61,7 @@ class BridgeWatchdog(Node):
         self._msg_count = 0
         self._status = self.STATE_OK
         self._deactivated_by_us = False
+        self._switch_pending = False
 
         qos = QoSProfile(
             depth=1,
@@ -88,8 +89,7 @@ class BridgeWatchdog(Node):
         if self._status == self.STATE_STALE:
             self._status = self.STATE_RECOVERED
             self.get_logger().warn("状态已恢复")
-            if self._auto_reactivate and self._deactivated_by_us:
-                self._switch(activate=True)
+            self._sync_controller()
 
     # ─── 周期检查 ────────────────────────────────────────────────────
 
@@ -142,7 +142,21 @@ class BridgeWatchdog(Node):
 
     # ─── 控制器切换 ──────────────────────────────────────────────────
 
+    def _sync_controller(self) -> None:
+        """Reconcile a completed async switch with the latest feedback state."""
+        if self._switch_pending:
+            return
+        fresh = (self._last_msg_time is not None
+                 and time.monotonic() - self._last_msg_time <= self._timeout)
+        if fresh:
+            if self._auto_reactivate and self._deactivated_by_us:
+                self._switch(activate=True)
+        elif self._auto_deactivate and not self._deactivated_by_us:
+            self._switch(activate=False)
+
     def _switch(self, activate: bool) -> None:
+        if self._switch_pending:
+            return
         if not self._switch_cli.service_is_ready():
             if not self._switch_cli.wait_for_service(timeout_sec=3.0):
                 self.get_logger().error(
@@ -161,12 +175,19 @@ class BridgeWatchdog(Node):
         req.strictness = SwitchController.Request.BEST_EFFORT
         req.activate_asap = True
 
-        future = self._switch_cli.call_async(req)
+        self._switch_pending = True
+        try:
+            future = self._switch_cli.call_async(req)
+        except Exception as e:  # noqa: BLE001
+            self._switch_pending = False
+            self.get_logger().error(f"控制器切换调用失败: {e}")
+            return
         future.add_done_callback(
             lambda f: self._on_switch_done(f, activate)
         )
 
     def _on_switch_done(self, future, activate: bool) -> None:
+        self._switch_pending = False
         try:
             ok = future.result().ok
         except Exception as e:  # noqa: BLE001
@@ -178,6 +199,10 @@ class BridgeWatchdog(Node):
             self.get_logger().warn(
                 f"{'已重新激活' if activate else '已停用'}控制器 '{self._controller}'"
             )
+            # Feedback can recover before the deactivation response arrives.
+            # Conversely, it can become stale while activation is in flight.
+            # Check freshness again after recording the completed switch.
+            self._sync_controller()
         else:
             self.get_logger().error(
                 f"{'激活' if activate else '停用'}控制器 '{self._controller}' 被拒绝"

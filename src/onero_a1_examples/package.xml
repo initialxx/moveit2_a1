@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>onero_a1_examples</name>
+  <version>0.1.0</version>
+  <description>Runnable, annotated MoveIt 2 usage examples for the Onero A1 adapter.</description>
+  <maintainer email="dev@onerobot.com">Onero Robotics</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>onero_a1_common</exec_depend>
+  <exec_depend>onero_a1_moveit_config</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>moveit_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>shape_msgs</exec_depend>
+  <exec_depend>python3-scipy</exec_depend>
+  <export><build_type>ament_python</build_type></export>
+</package>

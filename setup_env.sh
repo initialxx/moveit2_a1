@@ -31,7 +31,7 @@ else
 fi
 
 # ── onero-sdk（真机模式必需）──────────────────────────────────────────
-# 话题桥在 simulate:=false 时会 import onero_sdk；缺了它节点会在启动时
+# 话题桥在 hardware_mode:=real 时会 import onero_sdk；缺了它节点会在启动时
 # 直接抛 RuntimeError 退出，表现为「看门狗一直报启动后从未收到状态」。
 #
 # 优先用已安装的（pip install onero-sdk）；

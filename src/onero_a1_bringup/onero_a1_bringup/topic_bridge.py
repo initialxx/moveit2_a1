@@ -201,9 +201,9 @@ class OneroTopicBridge(Node):
         if not self._simulate:
             self._init_hardware()
         else:
-            self.get_logger().warn(
-                "simulate=true —— 不连接硬件，用一阶跟随模拟机械臂。"
-                "接真机请设置 simulate:=false"
+            self.get_logger().info(
+                "模拟模式：不连接硬件，用一阶跟随模拟机械臂。"
+                "真机启动请选择 hardware_mode:=real"
             )
             if gp("gravity_compensation").value:
                 self.get_logger().info(

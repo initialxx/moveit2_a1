@@ -5,7 +5,7 @@ import json
 import math
 from pathlib import Path
 
-from onero_a1_demos.trial_records import BRIDGE_IDENTITY
+from .trial_records import BRIDGE_IDENTITY
 
 
 def main(args=None):
@@ -75,3 +75,7 @@ def main(args=None):
         return 0
     except (OSError, ValueError, KeyError, TypeError) as exc:
         parser.error(str(exc))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

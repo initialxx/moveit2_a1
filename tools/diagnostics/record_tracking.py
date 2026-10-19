@@ -3,7 +3,7 @@
 
 在点击 Plan & Execute 之前启动，动作结束后再等 5 秒并按 Ctrl-C：
     source setup_env.sh
-    python3 tools/record_tracking.py
+    python3 -m tools.diagnostics.record_tracking
 
 原始目标来自 MoveGroup 的 GetResult 响应，绝不使用停止后的 controller_state
 reference 代替。display_planned_path 仅保留作辅助；预览并不证明轨迹已执行。
@@ -235,7 +235,7 @@ class TrackingRecorder(Node):
                 for name, error in errors.items():
                     print(f"  {name}: {error:+.6f} rad / {math.degrees(error):+.3f}°")
         if not self.last_plan:
-            print("未取得 MoveGroup 原始轨迹；笛卡尔示例请结合 .logs/demos 报告中的原始目标。"
+            print("未取得 MoveGroup 原始轨迹；笛卡尔示例请结合 .logs/diagnostics 报告中的原始目标。"
                   "不能用 controller_state.reference 代替原始目标。")
         for topic in ("/robot_joint_commands", "/robot_joint_states",
                       "/arm_controller/controller_state", "/onero_topic_bridge/control_trace"):

@@ -11,9 +11,9 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from onero_a1_bringup.can_ownership import ChannelOwnership
-from onero_a1_demos.sdk_comparison import FlangeFK, check_start, metrics, validate_bundle
-from onero_a1_demos.sdk_compare import ObservedBus
-from onero_a1_demos.trial_records import fingerprint
+from tools.diagnostics.sdk_comparison import FlangeFK, check_start, metrics, validate_bundle
+from tools.diagnostics.sdk_compare import ObservedBus
+from tools.diagnostics.trial_records import fingerprint
 
 
 class ComparisonTest(unittest.TestCase):
