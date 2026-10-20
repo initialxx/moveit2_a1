@@ -1,0 +1,35 @@
+tools/diagnostics/__init__.py
+  s_64ea7c86d064a1::t_089fb65be6350d 1
+tools/diagnostics/README.md
+  s_64ea7c86d064a1::t_089fb65be6350d 1
+src/onero_a1_examples/onero_a1_examples/__init__.py
+  s_64ea7c86d064a1::t_089fb65be6350d 1
+src/onero_a1_examples/README.md
+  s_64ea7c86d064a1::t_089fb65be6350d 107
+README.md
+  s_64ea7c86d064a1::t_089fb65be6350d 15-16,159,290
+src/onero_a1_common/README.md
+  s_64ea7c86d064a1::t_089fb65be6350d 3
+src/onero_a1_common/onero_a1_common/moveit_client.py
+  s_64ea7c86d064a1::t_089fb65be6350d 1
+tools/diagnostics/saved_pose.py
+  s_64ea7c86d064a1::t_089fb65be6350d 1
+tools/diagnostics/client.py
+  s_64ea7c86d064a1::t_089fb65be6350d 288
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9fcbd25756dfd8e3fcc2ae7a9b5802c1475d0bca",
+  "prompts": {},
+  "sessions": {
+    "s_64ea7c86d064a1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a13d60-f162-71c1-bbb3-bfc7e70528b1",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "yangxiao <yangxiao@wondertechlabs.com>"
+    }
+  }
+}
