@@ -220,7 +220,18 @@ class MoveItClient(Node):
         if any(n in current and abs(current[n]-v) > .01 for n, v in zip(names, points[0].positions)):
             raise MoveItError("规划后起始状态已变化，请重新规划")
         goal = ExecuteTrajectory.Goal(trajectory=trajectory, controllers=[controller])
-        self.action(self.execution_client, goal, max(30., 2.*seconds(points[-1].time_from_start)+5.))
+        duration = seconds(points[-1].time_from_start)
+        settings = self.call(GetParameters, "/move_group/get_parameters", GetParameters.Request(names=[
+            "trajectory_execution.allowed_execution_duration_scaling",
+            "trajectory_execution.allowed_goal_duration_margin",
+        ])).values
+        if len(settings) != 2 or any(value.type not in (2, 3) for value in settings):
+            raise MoveItError("无法读取 MoveIt 轨迹执行等待参数")
+        scaling, margin = [float(value.double_value if value.type == 3 else value.integer_value)
+                           for value in settings]
+        if not math.isfinite(scaling) or scaling <= 0 or not math.isfinite(margin) or margin < 0:
+            raise MoveItError("MoveIt 轨迹执行等待参数无效")
+        self.action(self.execution_client, goal, max(30., 2.*duration+5., scaling*duration+margin+5.))
         print("MoveIt 执行成功。")
 
     def cleanup(self):

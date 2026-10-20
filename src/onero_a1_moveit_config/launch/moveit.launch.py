@@ -31,6 +31,10 @@ from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from moveit_configs_utils import MoveItConfigsBuilder
 from onero_a1_bringup.hardware_mode import configure_hardware_mode, mode_default
+from onero_a1_bringup.controller_tolerances import (
+    TOLERANCE_ARGUMENTS, controller_config_from_launch, execution_goal_margin,
+    tolerance_launch_arguments,
+)
 
 
 def generate_launch_description():
@@ -55,6 +59,7 @@ def generate_launch_description():
             "kd", default_value="1.0",
             description="SDK servoj 全关节速度阻尼增益；仅启动时设置",
         ),
+        *tolerance_launch_arguments(),
         DeclareLaunchArgument("mounting", default_value="upright"),
         DeclareLaunchArgument(
             "velocity_feedforward", default_value=mode_default("velocity_feedforward"),
@@ -97,6 +102,11 @@ def generate_launch_description():
     ]
 
     def prepare_environment(context):
+        controller_config, _ = controller_config_from_launch(
+            context, os.path.join(bringup_pkg, "config", "ros2_controllers.yaml"))
+        minimum_margin = moveit_config.trajectory_execution.get(
+            "trajectory_execution", {}).get("allowed_goal_duration_margin", 2.0)
+        goal_margin = execution_goal_margin(controller_config, minimum_margin)
         path = LaunchConfiguration("environment_file").perform(context).strip()
         real_hardware = LaunchConfiguration("hardware_mode").perform(context) == "real"
         allow_execution = IfCondition(LaunchConfiguration("allow_execution")).evaluate(context)
@@ -111,6 +121,7 @@ def generate_launch_description():
                 allow_execution=allow_execution,
             )
         return [
+            SetLaunchConfiguration("onero_execution_goal_margin", str(goal_margin)),
             SetLaunchConfiguration("environment_file", path),
             SetLaunchConfiguration("onero_start_arm_controller", "true" if allow_execution and not path else "false"),
             SetLaunchConfiguration("onero_real_hardware", "true" if real_hardware else "false"),
@@ -159,6 +170,7 @@ def generate_launch_description():
             os.path.join(bringup_pkg, "launch", "bringup.launch.py")
         ),
         launch_arguments={
+            **{name: LaunchConfiguration(name) for name in TOLERANCE_ARGUMENTS},
             "hardware_mode": LaunchConfiguration("hardware_mode"),
             "can_channel": LaunchConfiguration("can_channel"),
             "model": LaunchConfiguration("model"),
@@ -188,6 +200,8 @@ def generate_launch_description():
         output="screen",
         parameters=[moveit_config.to_dict(), {
             "allow_trajectory_execution": ParameterValue(LaunchConfiguration("allow_execution"), value_type=bool),
+            "trajectory_execution.allowed_goal_duration_margin": ParameterValue(
+                LaunchConfiguration("onero_execution_goal_margin"), value_type=float),
             "moveit_simple_controller_manager.controller_names": LaunchConfiguration("onero_moveit_controllers"),
         }],
     )

@@ -1,4 +1,6 @@
 """规划场景：添加会挡住原路径的球体，重新规划避让，再删除球体。"""
+from copy import deepcopy
+from scipy.spatial.transform import Rotation
 from moveit_msgs.msg import CollisionObject, PlanningScene
 from moveit_msgs.srv import ApplyPlanningScene
 from shape_msgs.msg import SolidPrimitive
@@ -37,10 +39,20 @@ def example(node):
             break
         point = baseline.points[int((len(baseline.points)-1)*fraction)]
         middle = dict(zip(baseline.joint_names, point.positions))
-        set_obstacle(node, node.fk(middle))
-        # Ensure the test blocks the original route while leaving both ends usable.
-        if node.validity(start).valid and node.validity(target).valid and not node.validity(middle).valid:
-            selected = True
+        flange = node.fk(middle)
+        q = flange.orientation
+        tool_axis = Rotation.from_quat([q.x, q.y, q.z, q.w]).apply([0., 0., 1.])
+        # A gripper can cover the flange route even at an endpoint. Also try
+        # the tool region; require the sphere to block only the middle state.
+        for distance in (0., .10):
+            obstacle = deepcopy(flange)
+            for axis, offset in zip("xyz", tool_axis*distance):
+                setattr(obstacle.position, axis, getattr(obstacle.position, axis)+float(offset))
+            set_obstacle(node, obstacle)
+            if node.validity(start).valid and node.validity(target).valid and not node.validity(middle).valid:
+                selected = True
+                break
+        if selected:
             break
     if not selected:
         raise MoveItError("该起点无法布置有效中途障碍物；调整 --scene-delta 或 --obstacle-radius")

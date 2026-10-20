@@ -11,7 +11,7 @@ setup(
     name="onero_a1_examples", version="0.1.0", packages=find_packages(),
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/onero_a1_examples"]),
-        ("share/onero_a1_examples", ["package.xml", "README.md", "LICENSE"]),
+        ("share/onero_a1_examples", ["package.xml", "README.md", "SHOWCASE.md", "LICENSE"]),
         ("share/onero_a1_examples/onero_a1_examples", glob("onero_a1_examples/*.py")),
     ],
     install_requires=["setuptools"], zip_safe=True,

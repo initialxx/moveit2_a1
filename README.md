@@ -100,9 +100,41 @@ ros2 launch onero_a1_moveit_config moveit.launch.py \
 运行模式统一由 `hardware_mode` 选择。`sim` 与 `real` 共用话题硬件接口、控制器和夹爪接口。
 `sim` 使用一阶跟随模拟关节运动，不计算重力、摩擦或接触动力学，不能用于验证真机到位精度。
 
+## 机械臂执行容差
+
+`arm_controller` 使用 ros2_control 的 JointTrajectoryController 判定关节跟踪和到位。
+默认值配置在 `onero_a1_bringup/config/ros2_controllers.yaml`，两个启动入口均支持以下可选参数：
+
+| 启动参数 | 默认值 | 含义 |
+|---|---|---|
+| `arm_trajectory_tolerance` | 0.20 rad | 运动过程中，各关节允许的位置跟踪误差 |
+| `arm_goal_tolerance` | 0.05 rad | 轨迹结束时，各关节允许的位置误差 |
+| `arm_goal_time_tolerance` | 1.0 s | 轨迹结束后，为满足到位条件允许额外等待的时间 |
+| `arm_stopped_velocity_tolerance` | 0.02 rad/s | 轨迹结束时允许的关节速度 |
+
+省略参数时沿用 YAML 中的配置；显式传入则统一覆盖七个关节。数值必须为有限正数。
+需要逐关节配置时，修改 YAML 中的 `constraints.<关节名>.trajectory/goal`，并省略相应的统一覆盖参数。
+这些参数在启动时加载，供 RViz 和功能示例共同使用，sim / real 用法相同。
+
+例如，将终点角度容差设为 `0.06 rad`，额外等待设为 2 秒：
+
+```bash
+ros2 launch onero_a1_moveit_config moveit.launch.py \
+  hardware_mode:=real mounting:=humanoid_right with_gripper:=true \
+  environment_file:="$PWD/src/onero_a1_moveit_config/config/environment.desktop.yaml" \
+  arm_goal_tolerance:=0.06 \
+  arm_goal_time_tolerance:=2.0
+```
+
+MoveIt 的执行等待余量会随控制器的额外等待时间增加，功能示例读取同一等待配置。
+执行容差决定何时报告成功或中止，放宽数值不会改善实物跟踪精度。
+它与 SDK 机械限位、MoveIt 规划目标容差及末端精度验收阈值分别配置。
+
 ## 功能示例与公共接口
 
 使用方法及源码入口见 [Examples 指南](src/onero_a1_examples/README.md)。
+较大幅度的动作、观察重点及 `0.5/0.5` 速度与加速度指令见
+[功能演示指令](src/onero_a1_examples/SHOWCASE.md)。
 
 ```bash
 ros2 run onero_a1_examples joint_goal --joint joint1-a1_r --delta 0.1

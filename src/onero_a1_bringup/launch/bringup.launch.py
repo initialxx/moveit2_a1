@@ -20,8 +20,11 @@ from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.substitutions import Command, EnvironmentVariable, LaunchConfiguration
 from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.parameter_descriptions import ParameterFile, ParameterValue
 from onero_a1_bringup.hardware_mode import configure_hardware_mode, mode_default
+from onero_a1_bringup.controller_tolerances import (
+    prepare_controller_parameters, tolerance_launch_arguments,
+)
 
 
 def generate_launch_description():
@@ -47,6 +50,7 @@ def generate_launch_description():
         DeclareLaunchArgument("kp", default_value=mode_default("kp"),
                              description="默认 50（模拟不使用增益）"),
         DeclareLaunchArgument("kd", default_value="1.0"),
+        *tolerance_launch_arguments(),
         DeclareLaunchArgument("velocity_feedforward", default_value=mode_default("velocity_feedforward"),
                              description="全部七关节速度前馈；默认 real=true、sim=false；可显式覆盖"),
         DeclareLaunchArgument("velocity_feedforward_scale", default_value="[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]",
@@ -146,7 +150,8 @@ def generate_launch_description():
     ros2_control_node = Node(
         package="controller_manager",
         executable="ros2_control_node",
-        parameters=[controllers_file, {"robot_description": robot_description}],
+        parameters=[ParameterFile(LaunchConfiguration("onero_controllers_file")),
+                    {"robot_description": robot_description}],
         remappings=[("/controller_manager/robot_description", "/robot_description")],
         output="screen",
     )
@@ -294,6 +299,8 @@ def generate_launch_description():
     return LaunchDescription(
         args
         + [
+            OpaqueFunction(function=prepare_controller_parameters,
+                           kwargs={"config_file": controllers_file}),
             robot_state_publisher,
             world_tf,
             ros2_control_node,

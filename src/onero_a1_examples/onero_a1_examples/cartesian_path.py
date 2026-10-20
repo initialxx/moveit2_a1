@@ -1,4 +1,4 @@
-"""笛卡尔路径：通过 GetCartesianPath 生成法兰直线或正方形路径。"""
+"""笛卡尔路径：通过 GetCartesianPath 生成法兰直线或平面正方形路径。"""
 from copy import deepcopy
 from moveit_msgs.msg import MoveItErrorCodes
 from .support import MoveItError, finish_arm_plan, positive, run_example, translated_target, translation_arguments
@@ -8,6 +8,8 @@ def configure(parser):
     translation_arguments(parser)
     parser.add_argument("--shape", choices=["line", "square"], default="line")
     parser.add_argument("--size", type=positive, default=.02, help="正方形边长，米")
+    parser.add_argument("--plane", choices=["xy", "xz", "yz"], default="yz",
+                        help="正方形所在平面，基于 --frame；默认 yz")
 
 
 def example(node):
@@ -15,10 +17,11 @@ def example(node):
     waypoints = [target]
     if node.args.shape == "square":
         size = node.args.size
-        for dx, dy in ((size, 0.), (size, size), (0., size), (0., 0.)):
+        axes = node.args.plane
+        for first, second in ((size, 0.), (size, size), (0., size), (0., 0.)):
             corner = deepcopy(target)
-            corner.position.x += dx
-            corner.position.y += dy
+            for axis, offset in zip(axes, (first, second)):
+                setattr(corner.position, axis, getattr(corner.position, axis)+offset)
             waypoints.append(corner)
     response = node.cartesian_path(node.start, waypoints)
     # A partial path is not an acceptable replacement for the requested motion.

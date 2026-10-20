@@ -40,6 +40,8 @@ arm_controller:
     # Final point must stop: a nonzero velocity must not persist during hold.
     allow_nonzero_velocity_at_trajectory_end: false
     constraints:
+      # Optional arm_*_tolerance launch arguments uniformly override these
+      # values. Omitted arguments preserve the per-joint settings below.
       # Require real feedback to converge; zero tolerances would disable these
       # checks and allow the controller to report success with a large error.
       goal_time: 1.0

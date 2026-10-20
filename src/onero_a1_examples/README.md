@@ -10,7 +10,7 @@
 | `joint_goal` | [joint_goal.py](onero_a1_examples/joint_goal.py) | 相对关节目标与关节空间规划 |
 | `named_pose` | [named_pose.py](onero_a1_examples/named_pose.py) | 从 SRDF 读取 `ready` / `home` |
 | `pose_goal` | [pose_goal.py](onero_a1_examples/pose_goal.py) | 法兰位置及朝向目标 |
-| `cartesian_path` | [cartesian_path.py](onero_a1_examples/cartesian_path.py) | 笛卡尔直线、多段正方形路径 |
+| `cartesian_path` | [cartesian_path.py](onero_a1_examples/cartesian_path.py) | 笛卡尔直线、XY/XZ/YZ 平面正方形路径 |
 | `orientation_constraint` | [orientation_constraint.py](onero_a1_examples/orientation_constraint.py) | 运动过程保持朝向 |
 | `planning_scene` | [planning_scene.py](onero_a1_examples/planning_scene.py) | 临时碰撞体、避让及清理 |
 | `collision_check` | [collision_check.py](onero_a1_examples/collision_check.py) | 查询当前或命名姿态的有效性与接触对 |
@@ -20,6 +20,9 @@
 公共接口位于 `onero_a1_common/moveit_client.py`，封装状态读取、FK、规划、显示、执行及取消。
 [support.py](onero_a1_examples/support.py) 仅处理示例命令行和节点生命周期。
 示例通过公共接口调用 MoveIt，再由控制器、适配层和 SDK 控制机械臂。
+
+较大幅度的动作、观察重点和逐项回位指令见 [功能演示指令](SHOWCASE.md)，
+其中手臂运动统一使用 `--velocity 0.5 --acceleration 0.5`。
 
 ## 构建和仿真启动
 
@@ -53,6 +56,7 @@ ros2 run onero_a1_examples pose_goal --dx 0 --dy 0 --dz 0.02
 ros2 run onero_a1_examples pose_goal --dx 0 --dy 0 --dz 0 --yaw 0.1
 ros2 run onero_a1_examples cartesian_path --shape line --dx 0 --dy 0 --dz 0.02
 ros2 run onero_a1_examples cartesian_path --shape square --size 0.02 --dx 0 --dy 0 --dz 0
+ros2 run onero_a1_examples cartesian_path --shape square --plane xz --size 0.02 --dx 0 --dy 0 --dz 0
 ros2 run onero_a1_examples orientation_constraint --dx 0 --dy 0 --dz 0.02 --planning-time 20
 ros2 run onero_a1_examples planning_scene --scene-delta 0.4 --obstacle-radius 0.01
 ros2 run onero_a1_examples collision_check
@@ -93,12 +97,15 @@ ros2 launch onero_a1_moveit_config moveit.launch.py \
 ## 公共参数与结果
 
 - `--frame`：默认 `world`，需要基座坐标时传 `--frame base_link`。
+- `--plane`：正方形默认使用 `yz` 平面，可选 `xy`、`xz`、`yz`。
 - `--velocity` / `--acceleration`：默认 0.05，表示限速缩放比例。
 - `--planning-time`：默认 10 秒；目标可达性与起点、朝向、碰撞及限位有关。
 - `--execute`：显式执行，默认只规划；碰撞查询只做只读请求。
 - `--help`：显示当前示例参数。
 
 规划成功时打印轨迹点数和时长，执行成功时打印 MoveIt 的执行结果。
+关节执行容差由服务端 `arm_*_tolerance` 启动参数统一配置，详见
+[机械臂执行容差](../../README.md#机械臂执行容差)；RViz 与示例共用控制器的到位判定。
 失败时打印对应接口的错误并返回非零。笛卡尔路径不完整时拒绝执行。
 Ctrl+C 会请求取消活动 Action，并清理本示例创建的临时场景对象。
 碰撞查询返回的是 `valid` 和接触对；命令成功返回表示查询完成，不等于该姿态一定无碰撞。
