@@ -1,4 +1,4 @@
-"""位姿目标：指定 Link7 法兰的平移和旋转，通过 IK/OMPL 规划到达。"""
+"""位姿目标：指定 Link7 法兰的平移和旋转，通过 IK 和规划管线到达。"""
 from scipy.spatial.transform import Rotation
 from .support import finite, finish_arm_plan, run_example, translated_target, translation_arguments
 
@@ -22,4 +22,5 @@ def example(node):
 
 
 def main(args=None):
-    return run_example("pose_goal", __doc__, configure, example, args)
+    return run_example("pose_goal", __doc__, configure, example, args,
+                       planning_pipelines=("ompl", "stomp"))

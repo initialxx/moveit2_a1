@@ -1,6 +1,6 @@
 # Onero A1 MoveIt 2 Examples
 
-本包面向应用开发人员：每个功能一个 Python 文件，展示目标构造和标准 MoveIt 调用。
+本包提供机械臂功能示例：每个功能一个 Python 文件，展示目标构造和标准 MoveIt 调用。
 默认只规划，添加 `--execute` 才执行。目标适用于 A1R 七关节和 Woan Picker。
 
 ## 代码结构
@@ -94,24 +94,81 @@ ros2 launch onero_a1_moveit_config moveit.launch.py \
 模型的 `ready/home` 需按实际空间核对，不能直接代替现场测试位。
 `return_startup` 会返回服务启动时捕获的位置，包括启动时在桌面上的情况。
 
-## 公共参数与结果
+## 规划器选择
 
-- `--frame`：默认 `world`，需要基座坐标时传 `--frame base_link`。
-- `--plane`：正方形默认使用 `yz` 平面，可选 `xy`、`xz`、`yz`。
-- `--velocity` / `--acceleration`：默认 0.05，表示限速缩放比例。
-- `--planning-time`：默认 10 秒；目标可达性与起点、朝向、碰撞及限位有关。
-- `--execute`：显式执行，默认只规划；碰撞查询只做只读请求。
-- `--help`：显示当前示例参数。
+支持 OMPL、CHOMP、STOMP，默认使用 OMPL / RRTConnect。
 
-规划成功时打印轨迹点数和时长，执行成功时打印 MoveIt 的执行结果。
-关节执行容差由服务端 `arm_*_tolerance` 启动参数统一配置，详见
-[机械臂执行容差](../../README.md#机械臂执行容差)；RViz 与示例共用控制器的到位判定。
-失败时打印对应接口的错误并返回非零。笛卡尔路径不完整时拒绝执行。
-Ctrl+C 会请求取消活动 Action，并清理本示例创建的临时场景对象。
-碰撞查询返回的是 `valid` 和接触对；命令成功返回表示查询完成，不等于该姿态一定无碰撞。
+| 示例 | OMPL | CHOMP | STOMP |
+|---|---|---|---|
+| `joint_goal`、`named_pose`、`return_startup`、`planning_scene` | 支持 | 支持 | 支持 |
+| `pose_goal` | 支持 | 不支持 | 支持 |
+| `orientation_constraint` | 支持 | 不支持 | 不支持 |
+| `gripper` | 支持 | 不支持 | 不支持 |
 
-这些示例展示功能调用。精度验收、报告、姿态存档、轨迹回放和 SDK 对照由
-[诊断工具](../../tools/diagnostics/README.md) 提供，不参与示例执行流程。
+夹爪固定使用 OMPL / RRTConnect。`cartesian_path` 使用独立的笛卡尔路径接口，
+`collision_check` 只查询碰撞，两者不选择规划器。
+
+用法：
+
+```bash
+ros2 run onero_a1_examples joint_goal --pipeline ompl --planner RRTstar
+ros2 run onero_a1_examples joint_goal --pipeline chomp
+ros2 run onero_a1_examples joint_goal --pipeline stomp
+```
+
+## 参数
+
+### 公共参数
+
+| 参数 | 默认值 | 含义 / 可选值 | 适用示例 |
+|---|---|---|---|
+| `--frame` | `world` | 参考系：`world`、`base_link` | 全部 |
+| `--execute` | 关闭 | 执行规划轨迹；省略时只规划 | 除 `collision_check` 外 |
+| `--velocity` | `0.05` | 速度缩放，范围 `(0, 1]` | 除 `collision_check` 外 |
+| `--acceleration` | `0.05` | 加速度缩放，范围 `(0, 1]` | 除 `collision_check` 外 |
+| `--planning-time` | `10` | 规划请求时间预算，单位秒 | 除 `collision_check` 外 |
+| `--pipeline` | `ompl` | 规划管线：`ompl`、`chomp`、`stomp`；适用范围见上表 | 手臂规划示例，`cartesian_path` 除外 |
+| `--planner` | `RRTConnect` | OMPL 算法：`RRTConnect`、`RRTstar`、`PRM`、`EST`、`LBKPIECE`、`BiTRRT`、`AnytimePathShortening` | 使用 OMPL 的手臂规划示例 |
+| `--help` | — | 显示当前示例帮助 | 全部 |
+
+CHOMP/STOMP 省略 `--planner`。夹爪的速度、加速度参数仅作用于规划轨迹，实际开合由适配层开度斜坡控制。
+
+### 功能参数
+
+| 参数 | 默认值 | 含义 / 可选值 | 适用示例 |
+|---|---|---|---|
+| `--joint` | `joint1-a1_r` | 目标关节，可选 `joint1-a1_r` 至 `joint7-a1_r` | `joint_goal` |
+| `--delta` | `0.1` | 关节相对转角，单位 rad | `joint_goal` |
+| `--target` | `ready` / 当前姿态 | SRDF 姿态名：`home`、`ready`；命名姿态默认 `ready`，碰撞查询默认当前姿态 | `named_pose`、`collision_check` |
+| `--dx`、`--dy`、`--dz` | `0`、`0`、`0.01` | 沿参考系 X、Y、Z 的相对位移，单位米 | `pose_goal`、`cartesian_path`、`orientation_constraint` |
+| `--roll`、`--pitch`、`--yaw` | 均为 `0` | 绕参考系 X、Y、Z 轴的增量旋转，单位 rad | `pose_goal` |
+| `--shape` | `line` | 路径形状：`line` 直线、`square` 正方形 | `cartesian_path` |
+| `--size` | `0.02` | 正方形边长，单位米，必须大于 0 | `cartesian_path` |
+| `--plane` | `yz` | 正方形平面：`xy`、`xz`、`yz` | `cartesian_path` |
+| `--path-angle-tolerance` | `0.1` | 路径中各轴允许的朝向偏差，单位 rad，必须大于 0 | `orientation_constraint` |
+| `--scene-delta` | `0.4` | joint4 目标角度的相对变化，单位 rad | `planning_scene` |
+| `--obstacle-radius` | `0.01` | 球形障碍物半径，单位米，必须大于 0 | `planning_scene` |
+| `--opening` | `1` | 夹爪归一化开度，范围 `[0, 1]`；0 全闭、1 全开 | `gripper` |
+
+### 规划器配置
+
+| 配置文件 | 参数 | 默认值 | 含义 |
+|---|---|---|---|
+| [chomp_planning.yaml](../onero_a1_moveit_config/config/chomp_planning.yaml) | `planning_time_limit` | `10.0` | CHOMP 优化时间上限，单位秒 |
+| [chomp_planning.yaml](../onero_a1_moveit_config/config/chomp_planning.yaml) | `max_iterations` | `200` | CHOMP 最大优化轮数 |
+| [stomp_planning.yaml](../onero_a1_moveit_config/config/stomp_planning.yaml) | `stomp_moveit.num_iterations` | `40` | STOMP 最大优化轮数 |
+
+规划时间预算和优化轮数影响路径搜索，不代表机械臂的运动时长。修改配置文件后需重新启动服务。
+服务端启动参数见 [启动模式与默认值](../../README.md#启动模式与默认值)及
+[机械臂执行容差](../../README.md#机械臂执行容差)。
+
+## 运行结果
+
+规划成功时输出轨迹点数和时长，执行成功时输出 MoveIt 执行结果；失败时返回非零状态码。
+笛卡尔路径不完整时拒绝执行。碰撞查询输出状态有效性和接触对象。
+Ctrl+C 请求取消活动 Action，并清理当前示例创建的临时场景对象。
+
+精度报告、姿态存档、轨迹回放和 SDK 对照见 [诊断工具](../../tools/diagnostics/README.md)。
 
 ## world 目标如何变成运动
 

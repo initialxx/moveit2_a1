@@ -10,7 +10,7 @@
 |---|---|
 | `src/onero_a1_description` | 机械臂、夹爪的 URDF、网格与 ros2_control 硬件描述 |
 | `src/onero_a1_bringup` | 话题桥、SDK 会话、控制器、状态看门狗与环境加载 |
-| `src/onero_a1_moveit_config` | SRDF、运动学、规划限位、OMPL、控制器映射和启动入口 |
+| `src/onero_a1_moveit_config` | SRDF、运动学、规划限位、OMPL/CHOMP/STOMP、控制器映射和启动入口 |
 | `src/onero_a1_common` | 可安装的公共 MoveIt Python 客户端 |
 | `src/onero_a1_examples` | 功能示例，一项功能一个源码文件 |
 | `tools/diagnostics` | 控制链路记录、精度验收、姿态存档、固定轨迹回放与 SDK 对照 |
@@ -28,6 +28,8 @@ tools/diagnostics ──▶ onero_a1_common
 ```bash
 sudo apt install -y \
   ros-jazzy-moveit \
+  ros-jazzy-moveit-planners-chomp \
+  ros-jazzy-moveit-planners-stomp \
   ros-jazzy-ros2-control \
   ros-jazzy-ros2-controllers \
   ros-jazzy-ros2controlcli \
@@ -129,6 +131,12 @@ ros2 launch onero_a1_moveit_config moveit.launch.py \
 MoveIt 的执行等待余量会随控制器的额外等待时间增加，功能示例读取同一等待配置。
 执行容差决定何时报告成功或中止，放宽数值不会改善实物跟踪精度。
 它与 SDK 机械限位、MoveIt 规划目标容差及末端精度验收阈值分别配置。
+
+## 规划器选择
+
+支持 OMPL、CHOMP、STOMP，默认使用 OMPL / RRTConnect。
+各示例的支持情况见 [规划器选择](src/onero_a1_examples/README.md#规划器选择)，
+命令行选项集中列在 [示例参数](src/onero_a1_examples/README.md#参数)。
 
 ## 功能示例与公共接口
 

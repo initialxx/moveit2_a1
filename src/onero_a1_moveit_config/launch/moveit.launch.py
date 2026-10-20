@@ -140,7 +140,7 @@ def generate_launch_description():
     # 用 MoveItConfigsBuilder 拼装，它会自动把各文件放到正确的命名空间下：
     #   kinematics.yaml -> robot_description_kinematics.arm.*
     #   joint_limits.yaml -> robot_description_planning.joint_limits.*
-    #   ompl_planning.yaml -> ompl.*
+    #   *_planning.yaml -> ompl.* / chomp.* / stomp.*
     # 手写这些前缀极易出错，且出错时往往【静默失效】。
     moveit_config = (
         MoveItConfigsBuilder("onero_a1", package_name="onero_a1_moveit_config")
@@ -157,7 +157,7 @@ def generate_launch_description():
         .robot_description_kinematics(file_path="config/kinematics.yaml")
         .joint_limits(file_path="config/joint_limits.yaml")
         .trajectory_execution(file_path="config/moveit_controllers.yaml")
-        .planning_pipelines(pipelines=["ompl"])
+        .planning_pipelines(default_planning_pipeline="ompl", pipelines=["ompl", "chomp", "stomp"])
         .planning_scene_monitor(
             publish_robot_description=True, publish_robot_description_semantic=True
         )

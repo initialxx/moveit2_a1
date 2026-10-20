@@ -18,4 +18,5 @@ def example(node):
 
 
 def main(args=None):
-    return run_example("orientation_constraint", __doc__, configure, example, args)
+    return run_example("orientation_constraint", __doc__, configure, example, args,
+                       planning_pipelines=("ompl",))

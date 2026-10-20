@@ -24,7 +24,7 @@ from moveit_msgs.msg import (
 )
 from moveit_msgs.srv import ApplyPlanningScene, GetCartesianPath, GetPositionFK, GetStateValidity
 from shape_msgs.msg import SolidPrimitive
-from .constants import JOINTS
+from .constants import JOINTS, OMPL_PLANNERS, PLANNING_PIPELINES
 
 
 class MoveItError(RuntimeError):
@@ -183,18 +183,35 @@ class MoveItClient(Node):
         return self.call(GetCartesianPath, "/compute_cartesian_path", request)
 
     def plan(self, start, goal_constraints, path_constraints=None, group="arm"):
+        pipeline = getattr(self.args, "pipeline", "ompl")
+        planner = getattr(self.args, "planner", None)
+        if pipeline not in PLANNING_PIPELINES:
+            raise MoveItError(f"未知规划管线：{pipeline}")
+        if pipeline == "ompl":
+            planner = planner or "RRTConnect"
+            if planner not in OMPL_PLANNERS:
+                raise MoveItError(f"未知 OMPL 算法：{planner}")
+        elif planner:
+            raise MoveItError("--planner 仅用于选择 OMPL 算法；CHOMP/STOMP 省略此参数")
+        if pipeline == "chomp" and (
+                not goal_constraints.joint_constraints or goal_constraints.position_constraints
+                or goal_constraints.orientation_constraints or goal_constraints.visibility_constraints):
+            raise MoveItError("CHOMP 仅支持关节目标；位姿目标请使用 OMPL 或 STOMP")
+        if pipeline != "ompl" and path_constraints is not None:
+            raise MoveItError("当前 CHOMP/STOMP 接入不支持路径约束；请使用 --pipeline ompl")
         goal = MoveGroup.Goal()
         request = goal.request
-        request.group_name, request.pipeline_id, request.planner_id = group, "ompl", "RRTConnect"
+        request.group_name, request.pipeline_id, request.planner_id = group, pipeline, planner or ""
         request.start_state = self.robot_state(start)
         request.goal_constraints = [goal_constraints]
         request.allowed_planning_time = self.args.planning_time
-        request.num_planning_attempts = 3
+        request.num_planning_attempts = 3 if pipeline == "ompl" else 1
         request.max_velocity_scaling_factor = self.args.velocity
         request.max_acceleration_scaling_factor = self.args.acceleration
         if path_constraints is not None:
             request.path_constraints = path_constraints
         goal.planning_options.plan_only = True
+        print(f"规划器：{pipeline}" + (f" / {planner}" if planner else ""))
         result = self.action(self.planner, goal, self.args.planning_time+15.)
         self.planned_start_state = result.trajectory_start
         return result.planned_trajectory

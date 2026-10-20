@@ -26,4 +26,4 @@ def example(node):
 
 
 def main(args=None):
-    return run_example("gripper", __doc__, configure, example, args)
+    return run_example("gripper", __doc__, configure, example, args, planning_pipelines=())

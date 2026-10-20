@@ -6,7 +6,7 @@ import sys
 
 import rclpy
 from rclpy.signals import SignalHandlerOptions
-from onero_a1_common.constants import JOINTS
+from onero_a1_common.constants import JOINTS, OMPL_PLANNERS, PLANNING_PIPELINES
 from onero_a1_common.moveit_client import MoveItClient, MoveItError
 
 
@@ -51,8 +51,10 @@ def finish_arm_plan(node, trajectory):
         node.execute(trajectory)
 
 
-def run_example(name, description, configure, scenario, args=None, *, query_only=False):
+def run_example(name, description, configure, scenario, args=None, *, query_only=False,
+                planning_pipelines=PLANNING_PIPELINES):
     parser = argparse.ArgumentParser(description=description)
+    parser.set_defaults(pipeline="ompl", planner=None)
     configure(parser)
     parser.add_argument("--frame", choices=["world", "base_link"], default="world", help="参考系，默认 world")
     if query_only:
@@ -62,9 +64,16 @@ def run_example(name, description, configure, scenario, args=None, *, query_only
         parser.add_argument("--velocity", type=scaling, default=.05, help="速度缩放，默认 0.05")
         parser.add_argument("--acceleration", type=scaling, default=.05, help="加速度缩放，默认 0.05")
         parser.add_argument("--planning-time", type=positive, default=10.)
+        if planning_pipelines:
+            parser.add_argument("--pipeline", choices=planning_pipelines, default="ompl",
+                                help="规划管线，默认 ompl")
+            parser.add_argument("--planner", choices=OMPL_PLANNERS,
+                                help="OMPL 算法，默认 RRTConnect；仅用于 --pipeline ompl")
     supplied = list(args) if args is not None else sys.argv[1:]
     split = supplied.index("--ros-args") if "--ros-args" in supplied else len(supplied)
     options = parser.parse_args(supplied[:split])
+    if options.pipeline != "ompl" and options.planner is not None:
+        parser.error("--planner 仅用于 --pipeline ompl；CHOMP/STOMP 省略此参数")
     options.case = name
     rclpy.init(args=supplied[split:], signal_handler_options=SignalHandlerOptions.NO)
     node = None

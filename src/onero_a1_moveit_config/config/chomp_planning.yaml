@@ -1,0 +1,20 @@
+planning_plugins:
+  - chomp_interface/CHOMPPlanner
+request_adapters:
+  - default_planning_request_adapters/ResolveConstraintFrames
+  - default_planning_request_adapters/ValidateWorkspaceBounds
+  - default_planning_request_adapters/CheckStartStateBounds
+  - default_planning_request_adapters/CheckStartStateCollision
+response_adapters:
+  - default_planning_response_adapters/AddTimeOptimalParameterization
+  - default_planning_response_adapters/ValidateSolution
+  - default_planning_response_adapters/DisplayMotionPath
+
+# Bound optimizer work without extending it through automatic recovery rounds.
+planning_time_limit: 10.0
+enable_failure_recovery: false
+max_iterations: 200
+ridge_factor: 0.01
+
+totg:
+  path_tolerance: 0.005
