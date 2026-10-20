@@ -1,0 +1,52 @@
+src/onero_a1_examples/onero_a1_examples/cartesian_path.py
+  s_64ea7c86d064a1::t_08f701e222efd6 34
+README.md
+  s_64ea7c86d064a1::t_ec3a4dbb908d99 13,31-32,135-136
+  s_64ea7c86d064a1::t_507d9059e83061 137-139
+  s_64ea7c86d064a1::t_bbb237eeaa1d1c 140
+src/onero_a1_examples/onero_a1_examples/pose_goal.py
+  s_64ea7c86d064a1::t_08f701e222efd6 1,25-26
+src/onero_a1_examples/onero_a1_examples/orientation_constraint.py
+  s_64ea7c86d064a1::t_08f701e222efd6 21-22
+src/onero_a1_common/onero_a1_common/constants.py
+  s_64ea7c86d064a1::t_08f701e222efd6 4-8
+src/onero_a1_moveit_config/config/chomp_planning.yaml
+  s_64ea7c86d064a1::t_08f701e222efd6 1-20
+src/onero_a1_examples/onero_a1_examples/support.py
+  s_64ea7c86d064a1::t_08f701e222efd6 9,54-55,57,67-71,75-76
+src/onero_a1_examples/onero_a1_examples/gripper.py
+  s_64ea7c86d064a1::t_08f701e222efd6 29
+src/onero_a1_moveit_config/package.xml
+  s_64ea7c86d064a1::t_08f701e222efd6 29-30
+src/onero_a1_examples/SHOWCASE.md
+  s_64ea7c86d064a1::t_507d9059e83061 11-12,57,146,166
+  s_64ea7c86d064a1::t_ec3a4dbb908d99 13
+src/onero_a1_common/README.md
+  s_64ea7c86d064a1::t_ec3a4dbb908d99 12,15
+  s_64ea7c86d064a1::t_507d9059e83061 13-14
+src/onero_a1_moveit_config/config/stomp_planning.yaml
+  s_64ea7c86d064a1::t_08f701e222efd6 1-24
+src/onero_a1_common/onero_a1_common/moveit_client.py
+  s_64ea7c86d064a1::t_08f701e222efd6 27,186-201,204,208,214
+src/onero_a1_examples/README.md
+  s_64ea7c86d064a1::t_507d9059e83061 3,97,99,101-106,108-111,113-117,119,121-155,157-159,161-163,165,167-169,171
+  s_64ea7c86d064a1::t_ec3a4dbb908d99 112,118,120,156,160,164,166,170
+src/onero_a1_moveit_config/launch/moveit.launch.py
+  s_64ea7c86d064a1::t_08f701e222efd6 143,160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ea2940b94af4f310bf95bd9927493f6ca2f0dd0a",
+  "prompts": {},
+  "sessions": {
+    "s_64ea7c86d064a1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a13d60-f162-71c1-bbb3-bfc7e70528b1",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "yangxiao <yangxiao@wondertechlabs.com>"
+    }
+  }
+}
