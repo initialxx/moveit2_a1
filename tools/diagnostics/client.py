@@ -285,7 +285,7 @@ class DiagnosticClient(MoveItClient):
         print(f"执行成功；相对原始终点最大关节误差 {maximum:.6f} rad", flush=True)
 
 def run_diagnostic(options, scenario):
-    """Own internal reporting and strict acceptance; examples never call this."""
+    """Write diagnostic reports and run strict acceptance checks."""
     output = options.output or Path(".logs/diagnostics") / f"{datetime.now():%Y%m%d-%H%M%S}-{options.case}-{uuid.uuid4().hex[:6]}.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.exists():

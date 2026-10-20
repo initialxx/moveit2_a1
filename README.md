@@ -12,8 +12,8 @@
 | `src/onero_a1_bringup` | 话题桥、SDK 会话、控制器、状态看门狗与环境加载 |
 | `src/onero_a1_moveit_config` | SRDF、运动学、规划限位、OMPL、控制器映射和启动入口 |
 | `src/onero_a1_common` | 可安装的公共 MoveIt Python 客户端 |
-| `src/onero_a1_examples` | 对外功能示例，一项功能一个源码文件 |
-| `tools/diagnostics` | 内部记录、精度验收、姿态存档、固定轨迹回放与 SDK 对照 |
+| `src/onero_a1_examples` | 功能示例，一项功能一个源码文件 |
+| `tools/diagnostics` | 控制链路记录、精度验收、姿态存档、固定轨迹回放与 SDK 对照 |
 
 ```text
 onero_a1_examples ──▶ onero_a1_common
@@ -156,8 +156,7 @@ JTC 与话题桥传递同一采样点的位置、速度，按关节名匹配。
 `environment_file` 接收碰撞体 YAML 绝对路径，通过 MoveIt Planning Scene 加载环境。
 未指定时不自动加入桌面或支架，关节反馈不包含环境识别信息。
 
-配置目录提供 `environment.desktop.yaml`、`environment.desktop_measured.yaml` 和
-`environment.desktop_draft.yaml`。使用时核对文件内的尺寸、安装方式及 `example_only` 标记。
+桌面与支架配置使用 `environment.desktop.yaml`。使用前核对文件内的尺寸、位置和安装方式。
 真机执行拒绝使用 `example_only: true` 的配置；预览可使用 `allow_execution:=false`。
 
 YAML 中 `frame_id` 为 world，`xyz` 表示长方体中心，`size` 为三个方向尺寸，单位为米；
@@ -288,5 +287,5 @@ arm 组使用 KDL，OMPL 默认 RRTConnect，并配置 RRTstar、PRM 等规划�
 
 - [功能示例与源码](src/onero_a1_examples/README.md)
 - [公共 MoveIt 客户端](src/onero_a1_common/README.md)
-- [内部诊断工具](tools/diagnostics/README.md)
+- [诊断工具](tools/diagnostics/README.md)
 - [真机接入检查清单](docs/真机接入检查清单.md)

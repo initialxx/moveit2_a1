@@ -1,4 +1,4 @@
-"""Internal measured-pose archive, with model/hardware identity and motion checks."""
+"""Measured-pose archive, with model/hardware identity and motion checks."""
 import argparse
 import json
 import math

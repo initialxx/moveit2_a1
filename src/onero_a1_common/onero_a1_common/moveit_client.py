@@ -1,4 +1,4 @@
-"""Small standard MoveIt ROS client, shared by applications and internal tools.
+"""Small standard MoveIt ROS client, shared by applications and diagnostic tools.
 
 This module handles ROS requests, fresh state, visualization and execution.
 Reporting, pose archives, model fingerprints and precision acceptance belong

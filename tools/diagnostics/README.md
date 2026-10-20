@@ -1,4 +1,4 @@
-# 内部诊断工具
+# 诊断工具
 
 用于记录控制链路、保存实测姿态、验收轨迹精度，以及比较 MoveIt 与 SDK 的执行结果。
 公共 ROS 通信使用 `onero_a1_common`，报告和严格检查由 `DiagnosticClient` 提供。
