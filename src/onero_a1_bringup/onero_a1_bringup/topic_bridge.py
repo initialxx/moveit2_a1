@@ -71,6 +71,9 @@ class OneroTopicBridge(Node):
         self.declare_parameter("joint_names", DEFAULT_JOINT_NAMES)
         self.declare_parameter("joint_commands_topic", "/robot_joint_commands")
         self.declare_parameter("joint_states_topic", "/robot_joint_states")
+        self.declare_parameter("sim_initial_positions", [0.0] * 7)
+        self.declare_parameter("gripper_controller_name", "gripper_controller")
+        self.declare_parameter("gripper_joint_name", "woan_picker_left_finger_joint")
         self.declare_parameter("control_rate", 200.0)
         self.declare_parameter("state_publish_rate", 100.0)
         self.declare_parameter("trace_control", False)
@@ -173,6 +176,12 @@ class OneroTopicBridge(Node):
         self._hardware_lock = threading.RLock()
         self._cmd_pos = [0.0] * self._n          # 最新目标位置
         self._state_pos = [0.0] * self._n        # 当前关节位置
+        if self._simulate:
+            initial = list(gp("sim_initial_positions").value)
+            if len(initial) != self._n or not all(map(math.isfinite, initial)):
+                raise ValueError("sim_initial_positions 必须包含全部关节的有限角度")
+            self._state_pos = list(initial)
+            self._cmd_pos = list(initial)
         self._state_vel = [0.0] * self._n        # 当前关节速度
         self._last_cmd_stamp: Optional[float] = None   # 收到命令的单调时刻
         # Optional diagnosis: collect in the control thread, serialize/publish
@@ -210,29 +219,21 @@ class OneroTopicBridge(Node):
                     "模拟模式不计算重力补偿；该开关仅在真机模式生效"
                 )
 
-        # Capture once, before the control thread or any ROS command can change
-        # the initial feedback. Re-enable and subsequent commands must not reset it.
-        startup_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:12]
-        startup_directory = Path(os.environ.get("ROS_HOME", str(Path.home() / ".ros"))) / "startup_poses"
-        self._startup_pose_file = startup_directory.expanduser().resolve() / f"{startup_id}.json"
-        self._startup_pose_json = json.dumps({
-            "schema_version": 1,
-            "id": startup_id,
-            "captured_ros_ns": self.get_clock().now().nanoseconds,
-            "source": "simulated_startup" if self._simulate else "sdk_startup_feedback",
-            "simulate": self._simulate,
-            "model": str(gp("model").value),
-            "mounting": str(gp("mounting").value),
-            "can_channel": str(gp("can_channel").value),
-            "joint_positions": dict(zip(self._joint_names, self._state_pos)),
-        }, ensure_ascii=False, allow_nan=False)
+        # Identify this service instance without recording a return position.
+        # Only the record_startup example captures a return reference.
         self.declare_parameter(
-            "startup_pose", self._startup_pose_json,
-            descriptor=ParameterDescriptor(read_only=True, description="本次启动时的固定姿态快照（JSON）"),
-            ignore_override=True,
+            "session_id", uuid.uuid4().hex,
+            descriptor=ParameterDescriptor(read_only=True), ignore_override=True,
         )
         self.declare_parameter(
-            "startup_pose_file", str(self._startup_pose_file),
+            "recording_identity", json.dumps({
+                "model": str(gp("model").value),
+                "can_channel": str(gp("can_channel").value),
+                "mounting": str(gp("mounting").value),
+                "simulate": self._simulate,
+                "gripper_model": str(gp("gripper_model").value),
+                "zero_offsets": list(self._backend.offsets) if self._backend is not None else [0.] * self._n,
+            }, ensure_ascii=False, allow_nan=False),
             descriptor=ParameterDescriptor(read_only=True), ignore_override=True,
         )
 
@@ -286,17 +287,6 @@ class OneroTopicBridge(Node):
         self._thread = threading.Thread(target=self._control_loop, daemon=True)
         self._thread.start()
 
-        # Disk I/O is outside the CAN loop. Keep the in-memory snapshot usable
-        # even if the log filesystem cannot be written.
-        self.get_logger().info(f"本次启动姿态已固定保存：{self._startup_pose_json}")
-        try:
-            self._startup_pose_file.parent.mkdir(parents=True, exist_ok=True)
-            with self._startup_pose_file.open("x", encoding="utf-8") as stream:
-                stream.write(self._startup_pose_json + "\n")
-            self.get_logger().info(f"启动姿态文件：{self._startup_pose_file}")
-        except OSError as exc:
-            self.get_logger().warning(f"启动姿态文件未写入：{exc}；当前服务只读参数中仍保留快照")
-
         self.get_logger().info(
             f"话题桥已启动 | 关节 {self._n} 个 | 控制 {self._control_rate:.0f}Hz "
             f"| 状态发布 {gp('state_publish_rate').value}Hz | "
@@ -319,8 +309,7 @@ class OneroTopicBridge(Node):
             from .sdk_session import SDKArmSession
         except ImportError as e:
             raise RuntimeError(
-                "无法导入 onero_sdk。请 source setup_env.sh；"
-                "SDK 动力学环境可用 bash tools/install_sdk_runtime.sh 安装"
+                "无法导入 onero-sdk。请 source setup_env.sh 安装依赖并加载项目运行环境。"
             ) from e
 
         gp = self.get_parameter
@@ -745,6 +734,8 @@ def main(args=None) -> None:
                 arm_model=str(node.get_parameter("model").value),
                 can_channel=str(node.get_parameter("can_channel").value),
                 embedded=True,
+                controller_name=str(node.get_parameter("gripper_controller_name").value),
+                joint_name=str(node.get_parameter("gripper_joint_name").value),
             )
             executor.add_node(gripper)
         executor.spin()

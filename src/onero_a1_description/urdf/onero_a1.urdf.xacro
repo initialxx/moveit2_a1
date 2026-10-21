@@ -2,9 +2,8 @@
 <!--
   Onero A1 机器人描述（ROS 2 顶层入口）
 
-  重要：机器人本体（连杆/关节/几何）由 tools/sync_description_from_sdk.py
-        从 armsdk 的权威 URDF 自动生成，请勿手工编辑 onero_a1_body.urdf。
-        需要更新时重新运行该脚本。
+  机器人本体来自 SDK 的对应模型：右臂由 sync_description_from_sdk.py 生成，
+  左臂由 sync_dual_description_from_sdk.py 生成。关节几何和限位保留 SDK 定义。
 
   用法示例：
     xacro onero_a1.urdf.xacro \
@@ -16,13 +15,20 @@
   <!-- ─── 可配置参数 ─────────────────────────────────────────────── -->
 
   <xacro:arg name="gripper_model" default="none"/>
+  <xacro:arg name="arm" default="right"/>
 
   <!-- sim / real 使用相同的 topic 硬件接口 -->
   <xacro:arg name="joint_commands_topic" default="/robot_joint_commands"/>
   <xacro:arg name="joint_states_topic"   default="/robot_joint_states"/>
 
   <!-- ─── 机器人本体（自动生成，勿手改）──────────────────────────── -->
-  <xacro:include filename="onero_a1_body.urdf"/>
+  <xacro:if value="${'$(arg arm)' == 'right'}">
+    <xacro:include filename="onero_a1_body.urdf"/>
+  </xacro:if>
+  <xacro:if value="${'$(arg arm)' == 'left'}">
+    <xacro:include filename="onero_a1_arms.urdf.xacro"/>
+    <xacro:onero_a1_left_body prefix=""/>
+  </xacro:if>
   <xacro:if value="${'$(arg gripper_model)' == 'woan_picker'}">
     <xacro:include filename="onero_woan_picker.urdf"/>
   </xacro:if>
@@ -32,6 +38,7 @@
 
   <xacro:onero_a1_ros2_control
       name="onero_a1"
+      suffix="${'l' if '$(arg arm)' == 'left' else 'r'}"
       joint_commands_topic="$(arg joint_commands_topic)"
       joint_states_topic="$(arg joint_states_topic)"/>
 

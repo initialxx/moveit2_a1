@@ -1,7 +1,0 @@
-# SDK dynamics runtime for ROS Jazzy / Python 3.12, isolated in .venv-sdk.
-# Keep NumPy 1.x compatibility with the system ROS Python extensions.
-numpy>=1.26,<2
-pin==2.7.0
-# Match the native library ABI used by the Pinocchio 2.7 wheel.
-cmeel-urdfdom==3.1.1.1
-cmeel-tinyxml2==9.0.0.2

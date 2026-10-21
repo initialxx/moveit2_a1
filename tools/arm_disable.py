@@ -17,11 +17,16 @@
 
 用法
 ----
-    PYTHONPATH=/home/initialxx/project/armsdk python3 tools/arm_disable.py
+    source setup_env.sh
+    python3 tools/arm_disable.py --channel can0 --model A1R
+    python3 tools/arm_disable.py --both
 
-    --channel slcan0    CAN 接口
-    --model A1R         型号
-    --yes               跳过确认
+    --channel slcan0     单臂 CAN 接口（默认 slcan0）
+    --model A1R          单臂型号（默认 A1R）
+    --both               依次向左、右臂发送失能指令
+    --left-channel can1  双臂模式左臂接口（默认 can1，型号 A1L）
+    --right-channel can0 双臂模式右臂接口（默认 can0，型号 A1R）
+    --yes                跳过确认
 """
 
 from __future__ import annotations
@@ -30,21 +35,74 @@ import argparse
 import sys
 
 
-def parse_args():
+def parse_args(argv=None):
     p = argparse.ArgumentParser(description="让机械臂卸力")
-    p.add_argument("--channel", default="slcan0")
-    p.add_argument("--model", default="A1R")
+    p.add_argument("--channel", help="单臂 CAN 接口，默认 slcan0")
+    p.add_argument("--model", help="单臂型号，默认 A1R")
+    p.add_argument("--both", action="store_true", help="依次失能两条臂")
+    p.add_argument("--left-channel", help="双臂左侧 CAN 接口，默认 can1")
+    p.add_argument("--right-channel", help="双臂右侧 CAN 接口，默认 can0")
     p.add_argument("--yes", action="store_true", help="跳过确认")
-    return p.parse_args()
+    args = p.parse_args(argv)
+    if args.both:
+        if args.channel is not None or args.model is not None:
+            p.error("--both 使用 --left-channel/--right-channel，不与 --channel/--model 混用")
+        args.targets = [(args.left_channel if args.left_channel is not None else "can1", "A1L"),
+                        (args.right_channel if args.right_channel is not None else "can0", "A1R")]
+    else:
+        if args.left_channel is not None or args.right_channel is not None:
+            p.error("--left-channel/--right-channel 需要同时指定 --both")
+        args.targets = [(args.channel if args.channel is not None else "slcan0",
+                         args.model if args.model is not None else "A1R")]
+    args.targets = [(channel.strip(), model.strip()) for channel, model in args.targets]
+    if any(not channel for channel, _ in args.targets):
+        p.error("CAN 接口名不能为空")
+    if any(not model for _, model in args.targets):
+        p.error("型号不能为空")
+    if len({channel for channel, _ in args.targets}) != len(args.targets):
+        p.error("两条臂必须使用不同的 CAN 接口")
+    return args
 
 
-def main() -> int:
-    a = parse_args()
+def _disable_arm(channel, model_name) -> int:
+    backend = None
+    rc = 0
+    try:
+        from onero_sdk.can_backend import CanBackend
+        from onero_sdk.model_registry import get_model
+
+        model = get_model(model_name)
+        print(f"\n  连接 {channel} | {model_name} ...")
+        backend = CanBackend(channel=channel, joint_specs=model.joints, recv_timeout=0.003)
+        try:
+            state = backend.get_state()
+            print("  卸力前位置: " + "  ".join(f"{v:+.3f}" for v in state.joints))
+        except Exception as exc:
+            print(f"  （读位置失败，继续卸力: {exc}）")
+        backend.disable()
+        print(f"  ✓ {channel} | {model_name} 已发送失能指令")
+    except Exception as exc:
+        print(f"  ✗ {channel} | {model_name} 卸力失败: {type(exc).__name__}: {exc}")
+        rc = 2
+    finally:
+        if backend is not None:
+            try:
+                backend.close(disable=False)
+                print(f"  ✓ {channel} CAN 已关闭")
+            except Exception as exc:
+                print(f"  ✗ {channel} CAN 关闭失败: {exc}")
+                rc = 2
+    return rc
+
+
+def main(argv=None) -> int:
+    a = parse_args(argv)
 
     print("=" * 66)
     print(" 机械臂卸力")
     print("=" * 66)
-    print(f"  接口 {a.channel} | 型号 {a.model}")
+    for channel, model in a.targets:
+        print(f"  接口 {channel} | 型号 {model}")
     print()
     print("  ⚠️  卸力后电机不再出力。带载且无支撑的机械臂会掉下来。")
     print()
@@ -61,35 +119,10 @@ def main() -> int:
     else:
         print("  （--yes 或非交互环境，跳过确认）")
 
-    from onero_sdk.can_backend import CanBackend
-    from onero_sdk.model_registry import get_model
-
-    model = get_model(a.model)
-    print(f"\n  连接 {a.channel} ...")
-    be = CanBackend(channel=a.channel, joint_specs=model.joints, recv_timeout=0.003)
-    print("  ✓ 已连接")
-
-    rc = 0
-    try:
-        state = be.get_state()
-        print("  卸力前位置: " + "  ".join(f"{v:+.3f}" for v in state.joints))
-    except Exception as e:  # noqa: BLE001
-        print(f"  （读位置失败，继续卸力: {e}）")
-
-    try:
-        be.disable()
-        print("  ✓ 已发送失能指令 —— 机械臂现在是松的")
-    except Exception as e:  # noqa: BLE001
-        print(f"  ✗ 卸力失败: {type(e).__name__}: {e}")
-        rc = 2
-    finally:
-        try:
-            be.close(disable=False)
-        except Exception:  # noqa: BLE001
-            pass
-        print("  ✓ CAN 已关闭")
-
-    return rc
+    results = [_disable_arm(channel, model) for channel, model in a.targets]
+    if a.both:
+        print(f"\n  失能操作成功：{results.count(0)}/{len(results)} 条臂")
+    return 0 if all(result == 0 for result in results) else 2
 
 
 if __name__ == "__main__":

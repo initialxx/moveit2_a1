@@ -13,4 +13,4 @@ def example(node):
 
 
 def main(args=None):
-    return run_example("named_pose", __doc__, configure, example, args)
+    return run_example("named_pose", __doc__, configure, example, args, allow_both=True)

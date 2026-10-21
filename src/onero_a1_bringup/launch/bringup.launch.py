@@ -10,7 +10,9 @@
      ros2 launch onero_a1_moveit_config moveit.launch.py hardware_mode:=sim
 """
 
+import json
 import os
+import subprocess
 import sys
 
 from ament_index_python.packages import get_package_share_directory
@@ -21,7 +23,7 @@ from launch.event_handlers import OnProcessExit
 from launch.substitutions import Command, EnvironmentVariable, LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterFile, ParameterValue
-from onero_a1_bringup.hardware_mode import configure_hardware_mode, mode_default
+from onero_a1_bringup.hardware_mode import arm_default, configure_arm, configure_hardware_mode, mode_default
 from onero_a1_bringup.controller_tolerances import (
     prepare_controller_parameters, tolerance_launch_arguments,
 )
@@ -43,10 +45,11 @@ def generate_launch_description():
         OpaqueFunction(function=configure_hardware_mode),
         DeclareLaunchArgument("hardware_mode", default_value="sim", choices=["sim", "real"],
                              description="sim: 话题桥模拟，不连接 CAN；real: SDK 真机 CAN"),
+        DeclareLaunchArgument("arm", default_value="right", choices=["left", "right"]),
         DeclareLaunchArgument("joint_commands_topic", default_value="/robot_joint_commands"),
         DeclareLaunchArgument("joint_states_topic", default_value="/robot_joint_states"),
-        DeclareLaunchArgument("can_channel", default_value="can0"),
-        DeclareLaunchArgument("model", default_value="A1R"),
+        DeclareLaunchArgument("can_channel", default_value=arm_default("can_channel")),
+        DeclareLaunchArgument("model", default_value=arm_default("model")),
         DeclareLaunchArgument("kp", default_value=mode_default("kp"),
                              description="默认 50（模拟不使用增益）"),
         DeclareLaunchArgument("kd", default_value="1.0"),
@@ -56,7 +59,7 @@ def generate_launch_description():
         DeclareLaunchArgument("velocity_feedforward_scale", default_value="[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]",
                              description="兼容参数，仅接受全 1；使用 velocity_feedforward 统一开关"),
         DeclareLaunchArgument("velocity_feedforward_timeout", default_value="0.1"),
-        DeclareLaunchArgument("mounting", default_value="upright"),
+        DeclareLaunchArgument("mounting", default_value=arm_default("mounting")),
         DeclareLaunchArgument("with_gripper", default_value="false"),
         DeclareLaunchArgument("gripper_model", default_value="woan_picker", choices=["none", "woan_picker"]),
         DeclareLaunchArgument("allow_gripper_execution", default_value="true"),
@@ -70,10 +73,10 @@ def generate_launch_description():
             description="是否自动启动轨迹控制器；MoveIt 加载环境时延后启动",
         ),
         DeclareLaunchArgument(
-            "sdk_python", default_value=EnvironmentVariable(
-                "ONERO_SDK_PYTHON", default_value=sys.executable
+            "runtime_python", default_value=EnvironmentVariable(
+                "ONERO_RUNTIME_PYTHON", default_value=sys.executable
             ),
-            description="SDK 桥接使用的 Python；setup_env.sh 优先选取 .venv-sdk",
+            description="本项目话题桥使用的 Python；setup_env.sh 优先选取 .venv",
         ),
         DeclareLaunchArgument("control_rate", default_value=mode_default("control_rate"),
                              description="话题桥默认 real=100 Hz，sim=200 Hz"),
@@ -106,6 +109,7 @@ def generate_launch_description():
                 " joint_commands_topic:=", joint_commands_topic,
                 " joint_states_topic:=", joint_states_topic,
                 " gripper_model:=", LaunchConfiguration("gripper_model"),
+                " arm:=", LaunchConfiguration("arm"),
             ]
         ),
         value_type=str,
@@ -126,11 +130,26 @@ def generate_launch_description():
         mounting = LaunchConfiguration("mounting").perform(context)
         quaternion = [0.0, 0.0, 0.0, 1.0]
         if mounting != "upright":
-            # Reuse SDK mounting definitions; no dynamics dependency here.
-            from onero_sdk.mounting import get_mounting_rotation, resolve_mounting
+            # Query the pip-installed SDK with the same interpreter as the
+            # bridge; ROS launch itself does not need a second SDK installation.
             from scipy.spatial.transform import Rotation
+            query = (
+                "import json, sys; "
+                "from onero_sdk.mounting import get_mounting_rotation, resolve_mounting; "
+                "print(json.dumps(get_mounting_rotation(resolve_mounting(sys.argv[1])).tolist()))"
+            )
+            try:
+                result = subprocess.run(
+                    [LaunchConfiguration("runtime_python").perform(context), "-c", query, mounting],
+                    check=True, capture_output=True, text=True, timeout=10,
+                )
+                rotation = json.loads(result.stdout)
+            except (OSError, subprocess.SubprocessError, ValueError) as exc:
+                raise RuntimeError(
+                    "无法从项目运行环境读取 onero-sdk 安装方向；请重新 source setup_env.sh。"
+                ) from exc
             quaternion = Rotation.from_matrix(
-                get_mounting_rotation(resolve_mounting(mounting))
+                rotation
             ).as_quat().tolist()
         return [Node(
             package="tf2_ros", executable="static_transform_publisher",
@@ -182,10 +201,7 @@ def generate_launch_description():
         parameters=[
             {
                 "topic": joint_states_topic,
-                "joints": [
-                    "joint1-a1_r", "joint2-a1_r", "joint3-a1_r", "joint4-a1_r",
-                    "joint5-a1_r", "joint6-a1_r", "joint7-a1_r",
-                ],
+                "joints": LaunchConfiguration("onero_joint_names"),
             }
         ],
     )
@@ -197,10 +213,7 @@ def generate_launch_description():
         output="screen",
         parameters=[
             {
-                "joints": [
-                    "joint1-a1_r", "joint2-a1_r", "joint3-a1_r", "joint4-a1_r",
-                    "joint5-a1_r", "joint6-a1_r", "joint7-a1_r",
-                ],
+                "joints": LaunchConfiguration("onero_joint_names"),
                 "topic": "/joint_states",
                 "gripper_model": LaunchConfiguration("gripper_model"),
             }
@@ -223,13 +236,14 @@ def generate_launch_description():
     bridge_node = Node(
         package="onero_a1_bringup",
         executable="topic_bridge",
-        prefix=[LaunchConfiguration("sdk_python")],
+        prefix=[LaunchConfiguration("runtime_python")],
         name="onero_topic_bridge",
         output="screen",
         parameters=[
             {
                 "joint_commands_topic": joint_commands_topic,
                 "joint_states_topic": joint_states_topic,
+                "joint_names": LaunchConfiguration("onero_joint_names"),
                 "simulate": ParameterValue(simulate, value_type=bool),
                 "trace_control": ParameterValue(
                     LaunchConfiguration("trace_control"), value_type=bool
@@ -299,6 +313,7 @@ def generate_launch_description():
     return LaunchDescription(
         args
         + [
+            OpaqueFunction(function=configure_arm),
             OpaqueFunction(function=prepare_controller_parameters,
                            kwargs={"config_file": controllers_file}),
             robot_state_publisher,

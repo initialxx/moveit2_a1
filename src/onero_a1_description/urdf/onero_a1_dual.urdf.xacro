@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="onero_a1">
+  <xacro:arg name="arm_spacing" default="0.07"/>
+  <xacro:arg name="gripper_model" default="woan_picker"/>
+  <xacro:include filename="onero_a1_arms.urdf.xacro"/>
+  <xacro:include filename="onero_a1.ros2_control.xacro"/>
+  <link name="base_link"/>
+  <xacro:onero_a1_left_body prefix="left_"/>
+  <xacro:onero_a1_right_body prefix="right_"/>
+  <!-- SDK humanoid_left/right rotations; origins lie on the two mounting faces. -->
+  <joint name="left_mount" type="fixed">
+    <parent link="base_link"/><child link="left_base_link"/>
+    <origin xyz="0 ${float('$(arg arm_spacing)')/2} 0" rpy="${-pi/2} ${-pi/2} 0"/>
+  </joint>
+  <joint name="right_mount" type="fixed">
+    <parent link="base_link"/><child link="right_base_link"/>
+    <origin xyz="0 ${-float('$(arg arm_spacing)')/2} 0" rpy="${pi/2} ${-pi/2} 0"/>
+  </joint>
+  <xacro:if value="${'$(arg gripper_model)' == 'woan_picker'}">
+    <xacro:onero_dual_woan_picker prefix="left_"/>
+    <xacro:onero_dual_woan_picker prefix="right_"/>
+  </xacro:if>
+  <xacro:onero_a1_ros2_control name="onero_left" suffix="l"
+    joint_commands_topic="/left/robot_joint_commands" joint_states_topic="/left/robot_joint_states"/>
+  <xacro:onero_a1_ros2_control name="onero_right" suffix="r"
+    joint_commands_topic="/right/robot_joint_commands" joint_states_topic="/right/robot_joint_states"/>
+</robot>

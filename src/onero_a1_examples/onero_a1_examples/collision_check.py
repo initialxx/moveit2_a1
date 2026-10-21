@@ -15,4 +15,4 @@ def example(node):
 
 
 def main(args=None):
-    return run_example("collision_check", __doc__, configure, example, args, query_only=True)
+    return run_example("collision_check", __doc__, configure, example, args, query_only=True, allow_both=True)

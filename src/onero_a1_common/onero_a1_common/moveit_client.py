@@ -22,9 +22,14 @@ from moveit_msgs.msg import (
     CollisionObject, Constraints, DisplayTrajectory, JointConstraint,
     MoveItErrorCodes, OrientationConstraint, PlanningScene, PositionConstraint, RobotState,
 )
-from moveit_msgs.srv import ApplyPlanningScene, GetCartesianPath, GetPositionFK, GetStateValidity
+from moveit_msgs.srv import ApplyPlanningScene, GetCartesianPath, GetPositionFK, GetPositionIK, GetStateValidity
 from shape_msgs.msg import SolidPrimitive
-from .constants import JOINTS, OMPL_PLANNERS, PLANNING_PIPELINES
+from .constants import JOINTS, LEFT_JOINTS, OMPL_PLANNERS, PLANNING_PIPELINES
+from .startup_reference import load_reference, reference_path, store_reference
+
+# A1 position feedback has a resolution of about 0.0003815 rad. Permit one
+# feedback tick at a bounded joint's limit in planning requests only.
+START_STATE_BOUNDS_EPSILON = 0.0004
 
 
 class MoveItError(RuntimeError):
@@ -46,6 +51,9 @@ class MoveItClient(Node):
         self.service_clients = {}
         self.planned_start_state = None
         self.startup_id = None
+        self._joint_cache = {}
+        self._joint_position_bounds = None
+        self._configure_arm("right", dual=False)
         self.create_subscription(
             JointState, "/joint_states", self.on_state,
             QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
@@ -54,9 +62,45 @@ class MoveItClient(Node):
         self.display = self.create_publisher(DisplayTrajectory, "/display_planned_path", 1)
 
     def on_state(self, msg):
+        stamp = seconds(msg.header.stamp)
+        if not -.1 <= self.get_clock().now().nanoseconds*1e-9-stamp <= 1.:
+            return
+        for name, value in zip(msg.name, msg.position):
+            if math.isfinite(value):
+                previous = self._joint_cache.get(name)
+                if previous is None or stamp >= previous[1]:
+                    self._joint_cache[name] = (value, stamp)
+            else:
+                self._joint_cache.pop(name, None)
         positions = dict(zip(msg.name, msg.position))
-        if all(n in positions and math.isfinite(positions[n]) for n in JOINTS):
+        if all(n in positions and math.isfinite(positions[n]) for n in self.joints):
             self.latest = msg
+
+    def _configure_arm(self, side, dual):
+        self.arm_side = side
+        self.dual = dual
+        self.joints = LEFT_JOINTS+JOINTS if side == "both" else list(LEFT_JOINTS if side == "left" else JOINTS)
+        self.group = "both_arms" if side == "both" else f"{side}_arm" if dual else "arm"
+        prefix = side+"_" if dual and side != "both" else ""
+        self.tip_link = prefix+"Link7"
+        self.gripper_joint = prefix+"woan_picker_left_finger_joint"
+        self.gripper_group = prefix+"gripper"
+        self.gripper_controller = prefix+"gripper_controller"
+        self.arm_controllers = (["left_arm_controller", "right_arm_controller"] if side == "both"
+                                else [prefix+"arm_controller"])
+
+    def select_arm(self, side=None):
+        semantic = ET.fromstring(self.parameter("/move_group", "robot_description_semantic"))
+        groups = {g.get("name") for g in semantic.findall("group")}
+        dual = {"left_arm", "right_arm", "both_arms"} <= groups
+        single_side = ('left' if any(j.get('name', '').endswith('-a1_l')
+                                   for s in semantic.findall('group_state') for j in s.findall('joint')) else 'right')
+        side = side or ('right' if dual else single_side)
+        if side not in ("left", "right", "both") or (not dual and side != single_side):
+            raise MoveItError(f"当前为{single_side}单臂服务；双臂请启动 dual_moveit.launch.py")
+        self._configure_arm(side, dual)
+        if dual and side != "both" and self.args.frame == "base_link":
+            self.args.frame = side+"_base_link"
 
     def wait(self, future, timeout=15.):
         deadline = time.monotonic() + timeout
@@ -81,10 +125,10 @@ class MoveItClient(Node):
         deadline = time.monotonic()+10.
         while time.monotonic() < deadline:
             rclpy.spin_once(self, timeout_sec=.05)
-            if self.latest is not None:
-                age = self.get_clock().now().nanoseconds*1e-9-seconds(self.latest.header.stamp)
-                if -.1 <= age <= 1.:
-                    return dict(zip(self.latest.name, self.latest.position))
+            now = self.get_clock().now().nanoseconds*1e-9
+            fresh = {name:value for name,(value,stamp) in self._joint_cache.items() if -.1 <= now-stamp <= 1.}
+            if all(name in fresh for name in self.joints):
+                return fresh
         raise MoveItError("没有新鲜、完整的 /joint_states")
 
     @staticmethod
@@ -92,6 +136,41 @@ class MoveItClient(Node):
         # Preserve the gripper and attached-object state in MoveIt's scene.
         return RobotState(is_diff=True, joint_state=JointState(
             name=list(q), position=[float(v) for v in q.values()]))
+
+    def planning_start_state(self, q):
+        """Project only sub-tick start errors; preserve feedback and all goals."""
+        if self._joint_position_bounds is None:
+            model = ET.fromstring(self.parameter('/move_group', 'robot_description'))
+            bounds = {}
+            for joint in model.findall('joint'):
+                limit = joint.find('limit')
+                if joint.get('type') == 'revolute' and limit is not None:
+                    lower, upper = float(limit.get('lower')), float(limit.get('upper'))
+                    if not (math.isfinite(lower) and math.isfinite(upper) and lower <= upper):
+                        raise MoveItError(f"关节 {joint.get('name')} 的模型限位无效")
+                    bounds[joint.get('name')] = (lower, upper)
+            self._joint_position_bounds = bounds
+        projected = dict(q)
+        corrections = []
+        for name, position in q.items():
+            if name not in self._joint_position_bounds:
+                continue
+            lower, upper = self._joint_position_bounds[name]
+            if not math.isfinite(position):
+                raise MoveItError(f'规划起点 {name} 位置无效')
+            bounded = min(upper, max(lower, position))
+            error = abs(bounded-position)
+            if error > START_STATE_BOUNDS_EPSILON + 1e-12:
+                raise MoveItError(
+                    f'规划起点 {name}={position:.6f} rad 超出限位 [{lower}, {upper}]，'
+                    f'越界 {error:.6f} rad，大于反馈边界容差 {START_STATE_BOUNDS_EPSILON} rad')
+            if error:
+                projected[name] = bounded
+                corrections.append(f'{name}: {position:.6f} -> {bounded:.6f} rad')
+        if corrections:
+            self.get_logger().warning(
+                '规划起点反馈存在一个刻度内的边界偏差，仅对规划请求归界：' + '; '.join(corrections))
+        return self.robot_state(projected)
 
     def parameter(self, node, name):
         result = self.call(GetParameters, node+"/get_parameters", GetParameters.Request(names=[name]))
@@ -101,35 +180,78 @@ class MoveItClient(Node):
 
     def named_target(self, name):
         srdf = ET.fromstring(self.parameter("/move_group", "robot_description_semantic"))
-        states = {s.get("name"): s for s in srdf.findall("group_state") if s.get("group") == "arm"}
+        states = {s.get("name"): s for s in srdf.findall("group_state") if s.get("group") == self.group}
         if name not in states:
             raise MoveItError(f"未知姿态 {name}；可选：{list(states)}")
         return {j.get("name"): float(j.get("value")) for j in states[name].findall("joint")}
 
-    def startup_snapshot(self):
-        snapshot = json.loads(self.parameter("/onero_topic_bridge", "startup_pose"))
-        if not isinstance(snapshot, dict):
-            raise MoveItError("启动姿态格式无效")
-        q = snapshot.get("joint_positions")
-        if (snapshot.get("schema_version") != 1 or not snapshot.get("id")
-                or not isinstance(q, dict) or set(q) != set(JOINTS)
-                or any(type(v) not in (int, float) or not math.isfinite(v) for v in q.values())):
-            raise MoveItError("启动姿态必须包含七个有限关节角度和有效快照 ID")
-        return snapshot
+    def _startup_sessions(self):
+        if self.dual and self.arm_side == "both":
+            selected = [('left', LEFT_JOINTS), ('right', JOINTS)]
+        else:
+            selected = [(self.arm_side, self.joints)]
+        sessions = []
+        for side, names in selected:
+            bridge = f'/{side}/onero_topic_bridge' if self.dual else '/onero_topic_bridge'
+            try:
+                identifier = self.parameter(bridge, 'session_id')
+                identity = json.loads(self.parameter(bridge, 'recording_identity'))
+            except (MoveItError, ValueError) as exc:
+                raise MoveItError('无法读取服务实例标识，请更新并重启手臂服务后再记录起始位置') from exc
+            if not identifier or not isinstance(identity, dict):
+                raise MoveItError('服务实例或机械臂配置标识无效，请重启手臂服务')
+            sessions.append({'id': identifier, 'bridge': bridge, 'arm': side,
+                             'joint_names': list(names), 'identity': identity})
+        return sessions
 
-    def fk(self, q):
-        request = GetPositionFK.Request(robot_state=self.robot_state(q), fk_link_names=["Link7"])
+    def startup_snapshot(self):
+        sessions = self._startup_sessions()
+        try:
+            return load_reference(reference_path(), sessions)
+        except (ValueError, OSError) as exc:
+            raise MoveItError(str(exc)) from exc
+
+    def record_startup(self):
+        sessions = self._startup_sessions()
+        measured = self.state()
+        positions = {name: measured[name] for name in self.joints}
+        if self._startup_sessions() != sessions:
+            raise MoveItError('记录期间手臂服务已重启，请重新记录起始位置')
+        try:
+            store_reference(reference_path(), sessions, positions, self.get_clock().now().nanoseconds)
+        except (ValueError, OSError) as exc:
+            raise MoveItError(str(exc)) from exc
+        if self._startup_sessions() != sessions:
+            raise MoveItError('记录期间手臂服务已重启，请重新记录起始位置')
+        return self.startup_snapshot()
+
+    def fk(self, q, link=None):
+        request = GetPositionFK.Request(robot_state=self.robot_state(q), fk_link_names=[link or self.tip_link])
         request.header.frame_id = self.args.frame
         response = self.call(GetPositionFK, "/compute_fk", request)
         if response.error_code.val != MoveItErrorCodes.SUCCESS or len(response.pose_stamped) != 1:
             raise MoveItError(f"FK 失败：{response.error_code.val}")
         return response.pose_stamped[0].pose
 
-    def validity(self, q, constraints=None, group="arm"):
-        request = GetStateValidity.Request(robot_state=self.robot_state(q), group_name=group)
+    def validity(self, q, constraints=None, group=None):
+        request = GetStateValidity.Request(robot_state=self.robot_state(q), group_name=group or self.group)
         if constraints is not None:
             request.constraints = constraints
         return self.call(GetStateValidity, "/check_state_validity", request)
+
+    def inverse_kinematics(self, pose, seed, *, group, link):
+        request = GetPositionIK.Request()
+        request.ik_request.group_name = group
+        request.ik_request.ik_link_name = link
+        request.ik_request.pose_stamped.header.frame_id = self.args.frame
+        request.ik_request.pose_stamped.pose = pose
+        request.ik_request.robot_state = self.robot_state(seed)
+        request.ik_request.avoid_collisions = False
+        request.ik_request.timeout.sec = 1
+        response = self.call(GetPositionIK, "/compute_ik", request)
+        if response.error_code.val != MoveItErrorCodes.SUCCESS:
+            raise MoveItError(f"{group} 逆解失败：{response.error_code.val}")
+        return dict(zip(response.solution.joint_state.name, response.solution.joint_state.position))
 
     @staticmethod
     def joint_constraints(q, tolerance=.005):
@@ -139,14 +261,14 @@ class MoveItClient(Node):
 
     def orientation_constraint(self, pose, tolerance):
         constraint = OrientationConstraint(
-            link_name="Link7", orientation=pose.orientation, weight=1.,
+            link_name=self.tip_link, orientation=pose.orientation, weight=1.,
             absolute_x_axis_tolerance=tolerance, absolute_y_axis_tolerance=tolerance,
             absolute_z_axis_tolerance=tolerance, parameterization=OrientationConstraint.ROTATION_VECTOR)
         constraint.header.frame_id = self.args.frame
         return constraint
 
     def pose_constraints(self, pose):
-        position = PositionConstraint(link_name="Link7", weight=1.)
+        position = PositionConstraint(link_name=self.tip_link, weight=1.)
         position.header.frame_id = self.args.frame
         position.constraint_region.primitives = [SolidPrimitive(type=SolidPrimitive.SPHERE, dimensions=[.002])]
         position.constraint_region.primitive_poses = [deepcopy(pose)]
@@ -175,14 +297,14 @@ class MoveItClient(Node):
 
     def cartesian_path(self, start, waypoints):
         request = GetCartesianPath.Request(
-            start_state=self.robot_state(start), group_name="arm", link_name="Link7",
+            start_state=self.planning_start_state(start), group_name=self.group, link_name=self.tip_link,
             waypoints=waypoints, max_step=.003, revolute_jump_threshold=.2, avoid_collisions=True,
             max_velocity_scaling_factor=self.args.velocity,
             max_acceleration_scaling_factor=self.args.acceleration)
         request.header.frame_id = self.args.frame
         return self.call(GetCartesianPath, "/compute_cartesian_path", request)
 
-    def plan(self, start, goal_constraints, path_constraints=None, group="arm"):
+    def plan(self, start, goal_constraints, path_constraints=None, group=None):
         pipeline = getattr(self.args, "pipeline", "ompl")
         planner = getattr(self.args, "planner", None)
         if pipeline not in PLANNING_PIPELINES:
@@ -201,8 +323,10 @@ class MoveItClient(Node):
             raise MoveItError("当前 CHOMP/STOMP 接入不支持路径约束；请使用 --pipeline ompl")
         goal = MoveGroup.Goal()
         request = goal.request
-        request.group_name, request.pipeline_id, request.planner_id = group, pipeline, planner or ""
-        request.start_state = self.robot_state(start)
+        selected_group = self.gripper_group if group == "gripper" else group or self.group
+        request.group_name, request.pipeline_id, request.planner_id = selected_group, pipeline, planner or ""
+        request.start_state = (self.planning_start_state(start) if selected_group == self.group
+                               else self.robot_state(start))
         request.goal_constraints = [goal_constraints]
         request.allowed_planning_time = self.args.planning_time
         request.num_planning_attempts = 3 if pipeline == "ompl" else 1
@@ -225,18 +349,24 @@ class MoveItClient(Node):
             trajectory_start=self.planned_start_state or self.robot_state(self.start)))
         print(f"规划成功：{len(points)} 点，时长 {seconds(points[-1].time_from_start):.3f}s")
 
-    def execute(self, trajectory, controller="arm_controller"):
+    def execute(self, trajectory, controller=None):
         points = trajectory.joint_trajectory.points
         if not points or seconds(points[-1].time_from_start) <= 0:
             print("目标与当前状态重合，无需执行运动。")
             return
         if self.startup_id is not None and self.startup_snapshot()["id"] != self.startup_id:
-            raise MoveItError("规划期间服务已重启，启动姿态发生变化，请重新运行")
+            raise MoveItError("规划期间服务或记录的起始位置已变化，请重新运行")
         current = self.state()
         names = trajectory.joint_trajectory.joint_names
-        if any(n in current and abs(current[n]-v) > .01 for n, v in zip(names, points[0].positions)):
+        if any(n not in current or abs(current[n]-v) > .01 for n, v in zip(names, points[0].positions)):
             raise MoveItError("规划后起始状态已变化，请重新规划")
-        goal = ExecuteTrajectory.Goal(trajectory=trajectory, controllers=[controller])
+        if controller is None:
+            controllers = self.arm_controllers
+        elif isinstance(controller, str):
+            controllers = [self.gripper_controller if controller == "gripper_controller" else controller]
+        else:
+            controllers = list(controller)
+        goal = ExecuteTrajectory.Goal(trajectory=trajectory, controllers=controllers)
         duration = seconds(points[-1].time_from_start)
         settings = self.call(GetParameters, "/move_group/get_parameters", GetParameters.Request(names=[
             "trajectory_execution.allowed_execution_duration_scaling",

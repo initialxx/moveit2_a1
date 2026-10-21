@@ -6,7 +6,7 @@
   <description>
     Launch files and ros2_control configuration for the Onero A1 arm.
     Provides the topic bridge that connects joint_state_topic_hardware_interface
-    to the Onero SDK (armsdk).
+    to onero-sdk.
   </description>
   <maintainer email="dev@onerobot.com">Onero Robotics</maintainer>
   <license>Apache-2.0</license>
@@ -16,15 +16,9 @@
 
   <buildtool_depend>ament_python</buildtool_depend>
 
-  <!-- 注意：真机模式（hardware_mode:=real）运行时还需要 onero-sdk（PyPI 包）。
-       它目前不是 rosdep key，因此**故意不在此声明** —— 声明了会让
-       `rosdep install` 与 ROS build farm 直接失败。
-       发布前应先向 rosdistro 提 rosdep key：
-           onero_sdk:
-             pip:
-               packages: [onero-sdk]
-       在那之前，真机用户请自行 `pip install onero-sdk`；
-       桥接节点在缺少该依赖时会给出明确报错，不会静默降级。 -->
+  <!-- onero-sdk[dynamics] is installed from PyPI by setup_env.sh.
+       The requirements and ROS compatibility constraints are maintained under tools/.
+       No unregistered rosdep key is declared here. -->
 
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>rclpy</exec_depend>

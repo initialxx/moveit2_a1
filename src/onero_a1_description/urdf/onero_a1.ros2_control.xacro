@@ -17,7 +17,7 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:macro name="onero_a1_ros2_control"
-               params="name joint_commands_topic joint_states_topic">
+               params="name joint_commands_topic joint_states_topic suffix:=r">
 
     <ros2_control name="${name}" type="system">
       <hardware>
@@ -50,13 +50,13 @@
         </joint>
       </xacro:macro>
 
-      <xacro:onero_a1_joint joint="joint1-a1_r"/>
-      <xacro:onero_a1_joint joint="joint2-a1_r"/>
-      <xacro:onero_a1_joint joint="joint3-a1_r"/>
-      <xacro:onero_a1_joint joint="joint4-a1_r"/>
-      <xacro:onero_a1_joint joint="joint5-a1_r"/>
-      <xacro:onero_a1_joint joint="joint6-a1_r"/>
-      <xacro:onero_a1_joint joint="joint7-a1_r"/>
+      <xacro:onero_a1_joint joint="joint1-a1_${suffix}"/>
+      <xacro:onero_a1_joint joint="joint2-a1_${suffix}"/>
+      <xacro:onero_a1_joint joint="joint3-a1_${suffix}"/>
+      <xacro:onero_a1_joint joint="joint4-a1_${suffix}"/>
+      <xacro:onero_a1_joint joint="joint5-a1_${suffix}"/>
+      <xacro:onero_a1_joint joint="joint6-a1_${suffix}"/>
+      <xacro:onero_a1_joint joint="joint7-a1_${suffix}"/>
 
     </ros2_control>
   </xacro:macro>

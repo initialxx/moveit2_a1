@@ -9,6 +9,28 @@ MODE_DEFAULTS = {
              "velocity_feedforward": "true"},
 }
 
+ARM_DEFAULTS = {'right': {'model': 'A1R', 'mounting': 'humanoid_right', 'can_channel': 'can0'},
+                'left': {'model': 'A1L', 'mounting': 'humanoid_left', 'can_channel': 'can1'}}
+
+
+def arm_default(name):
+    from launch.substitutions import LaunchConfiguration, PythonExpression
+    values = {side: fields[name] for side, fields in ARM_DEFAULTS.items()}
+    return PythonExpression([repr(values), "['", LaunchConfiguration('arm'), "']"])
+
+
+def configure_arm(context):
+    from launch.actions import SetLaunchConfiguration
+    values = context.launch_configurations
+    side = values.get('arm', 'right')
+    if side not in ARM_DEFAULTS or values.get('model') != ARM_DEFAULTS[side]['model']:
+        raise ValueError('arm=left 对应 A1L，arm=right 对应 A1R')
+    suffix = 'l' if side == 'left' else 'r'
+    names = [f'joint{i}-a1_{suffix}' for i in range(1, 8)]
+    return [SetLaunchConfiguration('onero_joint_names', repr(names)),
+            SetLaunchConfiguration('onero_projection_evaluator', 'joints('+','.join(names[:2])+')'),
+            SetLaunchConfiguration('onero_left_arm', str(side == 'left').lower())]
+
 
 def mode_default(name):
     """Lazy launch default, evaluated after hardware_mode has been resolved.

@@ -22,7 +22,8 @@
 
 用法
 ----
-    PYTHONPATH=/home/initialxx/project/armsdk python3 tools/test_enable_hold.py
+    source setup_env.sh
+    "$ONERO_RUNTIME_PYTHON" tools/test_enable_hold.py
 
     # 常用参数
     --duration 10        保持多少秒（默认 10）

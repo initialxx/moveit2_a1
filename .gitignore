@@ -13,7 +13,7 @@ log/
 *.log
 
 # ─── Python ──────────────────────────────────────────────────
-.venv-sdk/
+.venv/
 __pycache__/
 *.py[cod]
 *.egg-info/

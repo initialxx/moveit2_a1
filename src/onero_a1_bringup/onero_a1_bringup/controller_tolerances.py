@@ -60,6 +60,13 @@ def resolve_controller_config(config, overrides):
 def controller_config_from_launch(context, config_file):
     from launch.substitutions import LaunchConfiguration
     config = yaml.safe_load(Path(config_file).read_text())
+    if context.launch_configurations.get('arm', 'right') == 'left':
+        parameters = config['arm_controller']['ros__parameters']
+        parameters['joints'] = [name.replace('-a1_r', '-a1_l') for name in parameters['joints']]
+        constraints = parameters['constraints']
+        for name in list(constraints):
+            if name.endswith('-a1_r'):
+                constraints[name.replace('-a1_r', '-a1_l')] = constraints.pop(name)
     overrides = {name: LaunchConfiguration(name).perform(context) for name in TOLERANCE_ARGUMENTS}
     return resolve_controller_config(config, overrides), overrides
 
@@ -74,7 +81,8 @@ def prepare_controller_parameters(context, config_file):
     from launch.actions import OpaqueFunction, RegisterEventHandler, SetLaunchConfiguration
     from launch.event_handlers import OnShutdown
     config, overrides = controller_config_from_launch(context, config_file)
-    if not any(str(value).strip() for value in overrides.values()):
+    if (not any(str(value).strip() for value in overrides.values())
+            and context.launch_configurations.get('arm', 'right') == 'right'):
         return [SetLaunchConfiguration('onero_controllers_file', str(config_file))]
     with tempfile.NamedTemporaryFile(mode='w', prefix='onero_controllers_', suffix='.yaml',
                                      encoding='utf-8', delete=False) as stream:

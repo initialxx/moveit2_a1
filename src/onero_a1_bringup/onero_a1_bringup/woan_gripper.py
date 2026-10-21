@@ -59,8 +59,10 @@ class WoanGripperController(Node):
     def __init__(self, *, device=None, simulate=True, allow_execution=True,
                  activate_on_start=True, embedded=False,
                  closed_sdk_opening=0., open_sdk_opening=1.,
-                 calibration_file='', arm_model='A1R', can_channel='simulation'):
-        super().__init__('gripper_controller', use_global_arguments=not embedded)
+                 calibration_file='', arm_model='A1R', can_channel='simulation',
+                 controller_name='gripper_controller', joint_name=JOINT):
+        super().__init__(controller_name, use_global_arguments=not embedded)
+        self._joint_name = joint_name
         readonly = ParameterDescriptor(read_only=True)
         self.declare_parameter('simulate', simulate, descriptor=readonly)
         self.declare_parameter('allow_execution', allow_execution, descriptor=readonly)
@@ -454,7 +456,7 @@ class WoanGripperController(Node):
                 self._sdk_raw_position = None if self._simulate else getattr(state, 'raw_position', None)
             msg = JointState()
             msg.header.stamp = self.get_clock().now().to_msg()
-            msg.name = [JOINT]
+            msg.name = [self._joint_name]
             msg.position = [position * STROKE]
             msg.velocity = [velocity * STROKE]
             self._publisher.publish(msg)

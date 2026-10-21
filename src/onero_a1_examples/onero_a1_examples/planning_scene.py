@@ -30,7 +30,8 @@ def set_obstacle(node, pose=None):
 
 def example(node):
     start = node.start
-    target = {**start, "joint4-a1_r": start["joint4-a1_r"]+node.args.scene_delta}
+    joint = node.joints[3]
+    target = {**start, joint: start[joint]+node.args.scene_delta}
     goal = node.joint_constraints(target)
     baseline = node.plan(start, goal).joint_trajectory
     selected = False

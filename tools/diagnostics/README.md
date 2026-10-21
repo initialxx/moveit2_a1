@@ -1,6 +1,6 @@
 # 诊断工具
 
-用于记录控制链路、保存实测姿态、验收轨迹精度，以及比较 MoveIt 与 SDK 的执行结果。
+用于记录控制链路、保存实测姿态、验收轨迹精度，以及比较 MoveIt 与 onero-sdk 的执行结果。
 公共 ROS 通信使用 `onero_a1_common`，报告和严格检查由 `DiagnosticClient` 提供。
 功能调用示例见 [onero_a1_examples](../../src/onero_a1_examples/README.md)。
 
@@ -13,7 +13,8 @@ source setup_env.sh
 ```
 
 ROS 工具需要已构建的公共接口、模型与 MoveIt 启动包，以及 numpy、scipy、rosidl_runtime_py。
-SDK 直接执行使用 `ONERO_SDK_PYTHON` 指定的解释器和 SDK 动力学环境。
+onero-sdk 直接执行使用 `ONERO_RUNTIME_PYTHON` 指定的项目运行环境，默认位于工作区 `.venv`。
+安装步骤见[环境准备与构建](../../README.md#环境准备与构建)。
 
 | 模块 | 功能 |
 |---|---|
@@ -21,12 +22,12 @@ SDK 直接执行使用 `ONERO_SDK_PYTHON` 指定的解释器和 SDK 动力学环
 | `saved_pose` | 保存和加载绑定模型、硬件身份的实测关节姿态 |
 | `trial` | 保存直线轨迹、返回轨迹起点、按原时间回放及精度验收 |
 | `compare_trials` | 比较相同轨迹、配置和起点下的执行报告 |
-| `sdk_compare` | 导出控制序列、运行 SDK 对照并比较结果 |
+| `sdk_compare` | 导出控制序列、运行 onero-sdk 对照并比较结果 |
 | `check_collision` | 使用已知折叠几何验证自碰撞排除配置 |
 
 ## 控制链路采集
 
-服务端启用 `trace_control:=true`，采集实际 SDK 输入、限幅结果、CAN 时序和反馈。
+服务端启用 `trace_control:=true`，采集实际 onero-sdk 输入、限幅结果、CAN 时序和反馈。
 在客户端发送运动之前启动记录器：
 
 ```bash
@@ -44,22 +45,22 @@ python3 -m tools.diagnostics.record_tracking --observe-only --duration 10
 每份记录对应一次目标执行；动作结束后继续采集保持段，再按 Ctrl+C 结束。
 文件默认位于 `.logs/tracking/`：
 
-- `*.jsonl`：控制器参考/反馈、桥接数据、SDK 命令、Action 状态及日志。
+- `*.jsonl`：控制器参考/反馈、桥接数据、onero-sdk 命令、Action 状态及日志。
 - `*.summary.json`：规划原始终点与反馈的逐关节差值。
 
 | 字段 | 含义 |
 |---|---|
-| `sdk_input_position` / `sdk_input_velocity` | 传给 SDK 的目标位置、速度 |
-| `command_position` / `command_velocity` | SDK 限幅后的命令 |
-| `raw_command_position` | 包含 SDK 零位换算的底层目标 |
+| `sdk_input_position` / `sdk_input_velocity` | 传给 onero-sdk 的目标位置、速度 |
+| `command_position` / `command_velocity` | onero-sdk 限幅后的命令 |
+| `raw_command_position` | 包含 onero-sdk 零位换算的底层目标 |
 | `requested_torque_ff` | 请求的重力补偿力矩 |
-| `sdk_torque_ff` / `command_torque_ff` | SDK 限幅后及最终下发的力矩前馈 |
+| `sdk_torque_ff` / `command_torque_ff` | onero-sdk 限幅后及最终下发的力矩前馈 |
 | `sdk_ff_limited` / `bridge_ff_limited` | 力矩前馈限幅状态 |
-| `period_s` / `io_s` / `command_age_s` | 控制周期、SDK I/O 耗时和命令年龄 |
+| `period_s` / `io_s` / `command_age_s` | 控制周期、onero-sdk I/O 耗时和命令年龄 |
 | `missed_joint_indices` / `exception` | 丢帧关节和调用异常 |
 
-SDK 命令记录与驱动器实际完成运动是不同证据，需同时检查反馈、Action 结果和丢帧。
-反馈力矩的物理含义取决于 SDK/驱动器标定，不直接等同于实测末端接触力。
+onero-sdk 命令记录与驱动器实际完成运动是不同证据，需同时检查反馈、Action 结果和丢帧。
+反馈力矩的物理含义取决于 onero-sdk/驱动器标定，不直接等同于实测末端接触力。
 
 ## 实测姿态存档
 
@@ -81,7 +82,7 @@ python3 -m tools.diagnostics.saved_pose load \
 加载时检查限位、碰撞与返回路径，执行结果写入诊断报告。
 姿态文件仅描述关节位置，不保存夹爪开度或环境对象。
 
-服务启动快照由 `onero_a1_examples return_startup` 使用；它与单独保存的悬空测试位分别管理。
+`record_startup` 记录的起始位置由 `onero_a1_examples return_startup` 使用；它与单独保存的悬空测试位分别管理。
 
 ## 固定轨迹与回放
 
@@ -124,7 +125,7 @@ python3 -m tools.diagnostics.trial prepare \
 
 默认验收点为 Link7 法兰，位置容差 0.005 m、朝向容差 0.05 rad、执行后关节容差 0.05 rad。
 使用 `--position-tolerance`、`--orientation-tolerance`、`--goal-tolerance` 指定验收条件。
-这些参数只影响报告判定，不修改控制器、增益或 SDK 限幅。
+这些参数只影响报告判定，不修改控制器、增益或 onero-sdk 限幅。
 
 执行 Action 成功与末端验收分别记录。`execution_action_result` 中 status=4、error_code=1
 表示 MoveIt 执行成功；法兰精度超限仍使诊断报告返回失败。
@@ -141,11 +142,11 @@ python3 -m tools.diagnostics.compare_trials \
 比较增益时，以相同场景、起点、轨迹、速度、加速度、频率和负载运行，只改变待评估参数。
 kp/kd 通过启动参数设置，实际值可从控制记录的 `command_kp` / `command_kd` 读取。
 
-## SDK 与 MoveIt 对照
+## onero-sdk 与 MoveIt 对照
 
-用于判断同一命令序列在 MoveIt 执行链和 SDK 直接执行下的差异。
+用于判断同一命令序列在 MoveIt 执行链和 onero-sdk 直接执行下的差异。
 支持 `gripper_model:=none` 的单臂数据；采集 A 阶段数据时就应使用相同模型配置。
-A 阶段由 MoveIt 执行并采集控制记录，B 阶段直接调用 SDK Arm.servoj()。
+A 阶段由 MoveIt 执行并采集控制记录，B 阶段直接调用 onero-sdk Arm.servoj()。
 控制序列的位置、速度、增益、时间、零位、安装及负载配置保持一致，重力补偿按 B 阶段反馈计算。
 
 导出需要完整的执行报告和控制记录。默认保持段长度为 10 秒，
@@ -161,12 +162,12 @@ python3 -m tools.diagnostics.sdk_compare export \
 
 `--phase hold` 评估固定目标保持；`--phase motion` 评估完整运动及保持段。
 导出只查询模型、FK、碰撞状态和输入文件，不发送运动。
-对照包绑定 SDK/模型/环境文件，相关内容变化时需要重新导出。
+对照包绑定 onero-sdk/模型/环境文件，相关内容变化时需要重新导出。
 
 预览 B 阶段命令：
 
 ```bash
-"$ONERO_SDK_PYTHON" -m tools.diagnostics.sdk_compare run \
+"$ONERO_RUNTIME_PYTHON" -m tools.diagnostics.sdk_compare run \
   --bundle .logs/trials/sdk_hold.json
 ```
 
@@ -185,14 +186,14 @@ python3 -m tools.diagnostics.sdk_compare prepare \
 起点差不超过 0.01 rad / 5 mm，不会自动追赶不匹配的起点。
 
 ```bash
-"$ONERO_SDK_PYTHON" -m tools.diagnostics.sdk_compare run \
+"$ONERO_RUNTIME_PYTHON" -m tools.diagnostics.sdk_compare run \
   --bundle .logs/trials/sdk_hold.json \
   --output .logs/trials/sdk_result.json --execute
 ```
 
 工具使用 CAN 进程锁并检查话题桥占用。其他未使用进程锁的 CAN 程序应由操作者停止。
 采集期间严格要求新鲜反馈。采集完成后保存结果，并继续刷新保持目标和重力补偿；
-保持段允许短暂缺帧，故障和连续丢帧由 SDK 保护。
+保持段允许短暂缺帧，故障和连续丢帧由 onero-sdk 保护。
 运动中 Ctrl+C 转入保持，再次 Ctrl+C 退出；退出前按现场流程支撑机械臂。
 保持事件写入 `<结果名>.hold_events.json`。
 

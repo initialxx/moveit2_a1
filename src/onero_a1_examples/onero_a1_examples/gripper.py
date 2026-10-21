@@ -18,7 +18,7 @@ def configure(parser):
 
 def example(node):
     # Model opening -> master angle. The adapter applies device calibration.
-    target = {JOINT: node.args.opening*1.1}
+    target = {node.gripper_joint: node.args.opening*1.1}
     trajectory = node.plan(node.start, node.joint_constraints(target), group="gripper")
     node.show_plan(trajectory)
     if node.args.execute:

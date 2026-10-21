@@ -1,0 +1,2 @@
+# onero-sdk provides the control API and declares its dynamics dependencies.
+onero-sdk[dynamics]==0.3.0

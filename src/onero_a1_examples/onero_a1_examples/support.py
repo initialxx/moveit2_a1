@@ -52,9 +52,14 @@ def finish_arm_plan(node, trajectory):
 
 
 def run_example(name, description, configure, scenario, args=None, *, query_only=False,
-                planning_pipelines=PLANNING_PIPELINES):
+                planning_pipelines=PLANNING_PIPELINES, dual=False, allow_both=False):
     parser = argparse.ArgumentParser(description=description)
     parser.set_defaults(pipeline="ompl", planner=None)
+    if dual:
+        parser.set_defaults(arm="both")
+    else:
+        parser.add_argument("--arm", choices=["left", "right"]+(["both"] if allow_both else []),
+                            help="选择手臂；单臂自动识别，双臂默认 right")
     configure(parser)
     parser.add_argument("--frame", choices=["world", "base_link"], default="world", help="参考系，默认 world")
     if query_only:
@@ -80,7 +85,8 @@ def run_example(name, description, configure, scenario, args=None, *, query_only
     code = 0
     try:
         node = MoveItClient(options)
-        node.start = {n: q for n, q in node.state().items() if n in JOINTS}
+        node.select_arm(options.arm)
+        node.start = {n: q for n, q in node.state().items() if n in node.joints}
         scenario(node)
     except (Exception, KeyboardInterrupt) as exc:
         print(f"示例失败：{str(exc) or 'interrupted'}", file=sys.stderr)

@@ -1,200 +1,180 @@
-# 功能演示指令
+# 功能示例运行指令
 
-这组动作通过较明显的位移、转向和路径形状展示 MoveIt 功能。
-适用场景：A1R、Woan Picker、`humanoid_right` 安装方向、
-`environment.desktop.yaml` 桌面支架环境，以及已确认安全的悬空启动姿态。
+以下命令在工作区根目录运行。速度和加速度缩放统一使用 `0.5`。
+功能说明、源码及参数见 [Examples 指南](README.md)，启动参数见[服务启动参数](../../README.md#服务启动参数)。
 
-所有手臂运动指令使用 `--velocity 0.5 --acceleration 0.5`，表示规划限值的 50%。
-位移单位为米，角度为弧度；默认参考系为 `world`，X 向前、Y 向左、Z 向上。
-位置和路径描述的是 `Link7` 法兰。
+- [单臂运行指令](#单臂运行指令)：右臂或左臂独立运行。
+- [双臂运行指令](#双臂运行指令)：单侧控制、双臂联合运动及双夹爪控制。
 
-规划器支持情况见 [规划器选择](README.md#规划器选择)，
-所有示例参数集中列在 [参数](README.md#参数)。
+## 共用约定
 
-## 启动与演示顺序
+- 每个终端先执行 `source setup_env.sh`，自动准备依赖、构建并加载环境。
+- 单臂和双臂服务每次选择一套；切换 sim / real 前结束上一套服务。
+- 动作先去掉 `--execute` 规划预览，确认路径后再执行；执行时重新规划。
+- 先用 `record_startup` 记录起始位置；每项独立运动完成后返回该位置，再进行下一项，相对位移从当前反馈计算。
+- 相同机械臂配置下，服务重启后沿用已有记录；仅在需要更换起始位置时重新记录。
+- 真机从已确认具有运动空间的悬空姿态启动。`ready` / `home` 是模型命名姿态。
+- 默认参考系为 `world`：X 向前、Y 向左、Z 向上；位置对应 Link7 法兰。
+- `environment_file` 默认留空。以下真机命令显式加载桌面与支架模型，使用前核对现场尺寸。
 
-在已验证的悬空姿态启动服务，以该姿态作为每项演示的回位基准：
+## 单臂运行指令
+
+下面分别列出右臂和左臂的完整指令，按实际安装选择一套。
+示例自动识别服务启动时选择的手臂，运行时省略 `--arm`。
+转角和横向位移按对称展示选取数值；两臂仍使用相同的 world 坐标方向规则。
+
+- [右单臂运行指令](#右单臂运行指令)
+- [左单臂运行指令](#左单臂运行指令)
+
+### 右单臂运行指令
+
+#### 1. 启动服务
+
+先加载环境，再选择模拟或真机模式。
 
 ```bash
-cd /home/initialxx/project/moveit2_ws
 source setup_env.sh
+```
 
+模拟模式：
+
+```bash
+ros2 launch onero_a1_moveit_config moveit.launch.py hardware_mode:=sim arm:=right
+```
+
+真机模式：
+
+```bash
 ros2 launch onero_a1_moveit_config moveit.launch.py \
-  hardware_mode:=real \
-  mounting:=humanoid_right \
-  with_gripper:=true \
+  hardware_mode:=real arm:=right with_gripper:=true \
   environment_file:="$PWD/src/onero_a1_moveit_config/config/environment.desktop.yaml"
 ```
 
-另一终端进入工作区并加载环境：
+右臂默认 CAN 为 `can0`，安装方向为 `humanoid_right`。CAN 接口不同时通过 `can_channel` 指定。
+需要仅预览时，启动命令添加 `allow_execution:=false`；真机仍会使能并保持实测姿态。
+
+在另一终端加载环境，运行下面各项指令：
 
 ```bash
-cd /home/initialxx/project/moveit2_ws
 source setup_env.sh
 ```
 
-先空载闭合夹爪，使演示起点的工具状态一致：
+#### 2. 记录与返回起始位置
+
+首次使用或需要更换起始位置时，保持手臂静止，记录当前位置；该命令不产生运动：
 
 ```bash
-ros2 run onero_a1_examples gripper --opening 0 \
-  --velocity 0.5 --acceleration 0.5 --execute
+ros2 run onero_a1_examples record_startup
 ```
 
-每项先去掉 `--execute` 规划预览，确认目标和整个路径适合现场后再执行。
-每个动作结束后停留约 2 秒，再执行该项下方的回位命令。
-相对运动从当前反馈计算目标，失败时先查看原因，避免连续重复。
-启动姿态发生改变后，应重新核对各动作的可达性和空间。
-
-| 演示 | 观众看到的动作 | 功能重点 |
-|---|---|---|
-| 单关节运动 | 根部关节抬臂约 34° | 指定一个关节的角度目标 |
-| 末端位置目标 | 向后 5 cm、向右 10 cm、向上 10 cm 到达新位置 | 多关节协同到达末端目标，中途路径可弯曲 |
-| 末端朝向目标 | 法兰位置基本保持，末端向左转约 29° | 指定末端朝向 |
-| 竖直直线 | 向上 12 cm | 法兰沿直线移动并保持朝向 |
-| 水平直线 | 向右 12 cm | 法兰沿水平直线移动 |
-| 竖直正方形 | 在 YZ 平面画边长 10 cm 的方形 | 多段笛卡尔路径，从正面观察 |
-| 姿态保持 | 夹爪保持原朝向，斜向右上方搬运 | 整条规划路径的朝向约束 |
-| 障碍物避让 | RViz 出现直径 6 cm 的球体，手臂改变路径绕行 | 场景更新、碰撞检查与重规划 |
-| 命名姿态 | 手臂整体切换到 `ready` | 按预设的七关节角度规划 |
-| 启动位返回 | 回到本轮服务启动时的位置 | 使用启动快照作为关节目标 |
-
-## 1. 单关节抬臂
-
-joint1 增加 `0.6 rad`，约 34°。观察根部关节带动手臂抬起。
-其他关节的终点目标保持原值，规划中仍可配合避障。
+每项独立运动完成后执行此命令，再进行下一项：
 
 ```bash
-ros2 run onero_a1_examples joint_goal \
-  --joint joint1-a1_r --delta 0.6 \
-  --velocity 0.5 --acceleration 0.5 --execute
-
 ros2 run onero_a1_examples return_startup \
   --velocity 0.5 --acceleration 0.5 --execute
 ```
 
-## 2. 末端到达指定位置
+#### 3. 单关节抬臂
 
-法兰目标为向后 5 cm、向右 10 cm、向上 10 cm。
-重点观察多关节如何共同把末端送到新位置；该示例只约束终点位姿。
+改变第 1 关节约 34°。
+
+```bash
+ros2 run onero_a1_examples joint_goal --delta 0.6 \
+  --velocity 0.5 --acceleration 0.5 --execute
+```
+
+#### 4. 法兰位置目标
+
+向后 5 cm、向外侧 10 cm、向上 10 cm 到达新位置，多关节共同配合；中途路径可以弯曲。
 
 ```bash
 ros2 run onero_a1_examples pose_goal \
   --dx -0.05 --dy -0.10 --dz 0.10 \
   --velocity 0.5 --acceleration 0.5 --execute
-
-ros2 run onero_a1_examples return_startup \
-  --velocity 0.5 --acceleration 0.5 --execute
 ```
 
-## 3. 末端转向
+#### 5. 法兰朝向目标
 
-法兰目标位置保持，绕 world 的 Z 轴向左转 `0.5 rad`，约 29°。
-各关节共同配合实现该末端姿态。
+法兰目标位置保持，绕 world Z 轴旋转约 29°。
 
 ```bash
 ros2 run onero_a1_examples pose_goal \
   --dx 0 --dy 0 --dz 0 --yaw 0.5 \
   --velocity 0.5 --acceleration 0.5 --execute
-
-ros2 run onero_a1_examples return_startup \
-  --velocity 0.5 --acceleration 0.5 --execute
 ```
 
-## 4. 竖直直线
+#### 6. 笛卡尔直线
 
-观察法兰向上走 12 cm，规划过程中保持朝向。
-与单关节抬臂相比，该项要求末端沿竖直直线运动。
+法兰竖直向上走 12 cm，并保持朝向。
 
 ```bash
 ros2 run onero_a1_examples cartesian_path \
   --shape line --dx 0 --dy 0 --dz 0.12 \
   --velocity 0.5 --acceleration 0.5 --execute
-
-ros2 run onero_a1_examples return_startup \
-  --velocity 0.5 --acceleration 0.5 --execute
 ```
 
-## 5. 水平直线
-
-观察法兰向右走 12 cm，规划过程中保持高度和朝向。
+水平向外侧走 12 cm：
 
 ```bash
 ros2 run onero_a1_examples cartesian_path \
   --shape line --dx 0 --dy -0.12 --dz 0 \
   --velocity 0.5 --acceleration 0.5 --execute
-
-ros2 run onero_a1_examples return_startup \
-  --velocity 0.5 --acceleration 0.5 --execute
 ```
 
-## 6. 竖直画正方形
+#### 7. 笛卡尔正方形
 
-从正面观察 YZ 平面：先到达后方 5 cm、上方 2 cm 的绘制起点，
-再依次向左、向上、向右、向下各走 10 cm。
-方形结束时停在绘制起点，随后用 `return_startup` 返回演示基准。
+先到后方 5 cm、上方 2 cm 的绘制起点，在 YZ 竖直平面画边长 10 cm 的正方形。
+按 world 方向依次向左、向上、向右、向下移动，结束于绘制起点。
 
 ```bash
 ros2 run onero_a1_examples cartesian_path \
   --shape square --plane yz --size 0.10 \
   --dx -0.05 --dy 0 --dz 0.02 \
   --velocity 0.5 --acceleration 0.5 --execute
-
-ros2 run onero_a1_examples return_startup \
-  --velocity 0.5 --acceleration 0.5 --execute
 ```
 
-法兰沿四条边移动并保持朝向。
+#### 8. 保持朝向搬运
 
-## 7. 保持朝向搬运
-
-法兰向后 4 cm、向右 10 cm、向上 10 cm 移动。
-规划要求全过程保持原朝向，各轴允许的路径朝向偏差为 `0.05 rad`，约 2.9°。
-可以把它讲解为“端平物体移动”，本例只演示姿态约束，不包含物体抓取或附着。
+法兰向后 4 cm、向外侧 10 cm、向上 10 cm 移动，路径朝向偏差限制为 0.05 rad。
 
 ```bash
 ros2 run onero_a1_examples orientation_constraint \
   --dx -0.04 --dy -0.10 --dz 0.10 \
   --path-angle-tolerance 0.05 --planning-time 20 \
   --velocity 0.5 --acceleration 0.5 --execute
-
-ros2 run onero_a1_examples return_startup \
-  --velocity 0.5 --acceleration 0.5 --execute
 ```
 
-## 8. 障碍物避让
+#### 9. 障碍物避让
 
-同时展示 RViz：先规划 joint4 增加 `0.4 rad` 的动作，再在原路线中间放置直径 6 cm 的虚拟球体，
-重新规划绕行。球体位置通过 FK 和碰撞查询选择，保证起点、终点可用，原路径中间被阻挡。
-动作完成后删除球体。该项的看点是绕行路径和场景变化。
+在原路线中间加入直径 6 cm 的临时球体，重新规划避让，结束后清理球体。
 
 ```bash
 ros2 run onero_a1_examples planning_scene \
-  --scene-delta 0.4 --obstacle-radius 0.03 \
-  --planning-time 20 \
-  --velocity 0.5 --acceleration 0.5 --execute
-
-ros2 run onero_a1_examples return_startup \
+  --scene-delta 0.4 --obstacle-radius 0.03 --planning-time 20 \
   --velocity 0.5 --acceleration 0.5 --execute
 ```
 
-## 9. 命名姿态与回位
+#### 10. 命名姿态
 
-`ready` 是模型中的固定七关节姿态，动作范围较大。
-先预览整个姿态切换和桌后空间，确认现场净空后执行；然后返回本轮启动快照。
-命名姿态与启动位返回的区别在于目标来源，需要结合指令和 RViz 说明。
+切换到模型中的 `ready` 姿态。模拟模式也可用它准备末端运动起点。
 
 ```bash
-ros2 run onero_a1_examples named_pose --target ready \
-  --planning-time 20 \
-  --velocity 0.5 --acceleration 0.5 --execute
-
-ros2 run onero_a1_examples return_startup \
+ros2 run onero_a1_examples named_pose --target ready --planning-time 20 \
   --velocity 0.5 --acceleration 0.5 --execute
 ```
 
-## 10. 夹爪开合
+#### 11. 夹爪标定与开合
 
-空载依次全开、半开、全闭，每次完成后停留约 2 秒。
+空载且完整开合范围无遮挡时标定；需要中止标定或当前夹爪动作时调用停止服务。
+
+```bash
+ros2 service call /gripper_controller/calibrate std_srvs/srv/Trigger '{}'
+
+# 需要停止时执行
+ros2 service call /gripper_controller/stop std_srvs/srv/Trigger '{}'
+```
+
+标定完成后，依次全开、半开、全闭：
 
 ```bash
 ros2 run onero_a1_examples gripper --opening 1 \
@@ -207,13 +187,11 @@ ros2 run onero_a1_examples gripper --opening 0 \
   --velocity 0.5 --acceleration 0.5 --execute
 ```
 
-夹爪使用 `GripperCommand` 发送最终开度。上述速度、加速度参数只影响夹爪规划轨迹，
-实际开合速度由适配层的开度斜坡控制，未提供独立的实际开合加速度设置。
+速度、加速度缩放作用于夹爪规划轨迹，实物开合由适配层开度斜坡执行。
 
-## 11. 碰撞查询
+#### 12. 碰撞查询
 
-该功能通过 RViz 场景和终端结果展示，不产生实物运动，也没有速度、加速度参数。
-查询当前姿态或命名姿态的有效性，查看返回值和碰撞接触对象：
+只查询，不产生运动。输出中的 `状态有效：True/False` 表示所查询姿态是否有效。
 
 ```bash
 ros2 run onero_a1_examples collision_check
@@ -221,4 +199,362 @@ ros2 run onero_a1_examples collision_check --target ready
 ros2 run onero_a1_examples collision_check --target home
 ```
 
-命令正常返回表示查询完成，`状态有效：True/False` 才表示所查询姿态的有效性。
+#### 13. 规划器选择
+
+以下只规划同一关节目标，选择一条运行。支持情况见[规划器选择](README.md#规划器选择)。
+
+```bash
+# OMPL / RRTstar
+ros2 run onero_a1_examples joint_goal --delta 0.1 --pipeline ompl --planner RRTstar \
+  --velocity 0.5 --acceleration 0.5
+
+# CHOMP
+ros2 run onero_a1_examples joint_goal --delta 0.1 --pipeline chomp \
+  --velocity 0.5 --acceleration 0.5
+
+# STOMP
+ros2 run onero_a1_examples joint_goal --delta 0.1 --pipeline stomp \
+  --velocity 0.5 --acceleration 0.5
+```
+
+### 左单臂运行指令
+
+#### 1. 启动服务
+
+先加载环境，再选择模拟或真机模式。
+
+```bash
+source setup_env.sh
+```
+
+模拟模式：
+
+```bash
+ros2 launch onero_a1_moveit_config moveit.launch.py hardware_mode:=sim arm:=left
+```
+
+真机模式：
+
+```bash
+ros2 launch onero_a1_moveit_config moveit.launch.py \
+  hardware_mode:=real arm:=left with_gripper:=true \
+  environment_file:="$PWD/src/onero_a1_moveit_config/config/environment.desktop.yaml"
+```
+
+左臂默认 CAN 为 `can1`，安装方向为 `humanoid_left`。CAN 接口不同时通过 `can_channel` 指定。
+需要仅预览时，启动命令添加 `allow_execution:=false`；真机仍会使能并保持实测姿态。
+
+在另一终端加载环境，运行下面各项指令：
+
+```bash
+source setup_env.sh
+```
+
+#### 2. 记录与返回起始位置
+
+首次使用或需要更换起始位置时，保持手臂静止，记录当前位置；该命令不产生运动：
+
+```bash
+ros2 run onero_a1_examples record_startup
+```
+
+每项独立运动完成后执行此命令，再进行下一项：
+
+```bash
+ros2 run onero_a1_examples return_startup \
+  --velocity 0.5 --acceleration 0.5 --execute
+```
+
+#### 3. 单关节抬臂
+
+改变第 1 关节约 34°。
+
+```bash
+ros2 run onero_a1_examples joint_goal --delta -0.6 \
+  --velocity 0.5 --acceleration 0.5 --execute
+```
+
+#### 4. 法兰位置目标
+
+向后 5 cm、向外侧 10 cm、向上 10 cm 到达新位置，多关节共同配合；中途路径可以弯曲。
+
+```bash
+ros2 run onero_a1_examples pose_goal \
+  --dx -0.05 --dy 0.10 --dz 0.10 \
+  --velocity 0.5 --acceleration 0.5 --execute
+```
+
+#### 5. 法兰朝向目标
+
+法兰目标位置保持，绕 world Z 轴旋转约 29°。
+
+```bash
+ros2 run onero_a1_examples pose_goal \
+  --dx 0 --dy 0 --dz 0 --yaw -0.5 \
+  --velocity 0.5 --acceleration 0.5 --execute
+```
+
+#### 6. 笛卡尔直线
+
+法兰竖直向上走 12 cm，并保持朝向。
+
+```bash
+ros2 run onero_a1_examples cartesian_path \
+  --shape line --dx 0 --dy 0 --dz 0.12 \
+  --velocity 0.5 --acceleration 0.5 --execute
+```
+
+水平向外侧走 12 cm：
+
+```bash
+ros2 run onero_a1_examples cartesian_path \
+  --shape line --dx 0 --dy 0.12 --dz 0 \
+  --velocity 0.5 --acceleration 0.5 --execute
+```
+
+#### 7. 笛卡尔正方形
+
+先到后方 5 cm、上方 2 cm 的绘制起点，在 YZ 竖直平面画边长 10 cm 的正方形。
+按 world 方向依次向左、向上、向右、向下移动，结束于绘制起点。
+
+```bash
+ros2 run onero_a1_examples cartesian_path \
+  --shape square --plane yz --size 0.10 \
+  --dx -0.05 --dy 0 --dz 0.02 \
+  --velocity 0.5 --acceleration 0.5 --execute
+```
+
+#### 8. 保持朝向搬运
+
+法兰向后 4 cm、向外侧 10 cm、向上 10 cm 移动，路径朝向偏差限制为 0.05 rad。
+
+```bash
+ros2 run onero_a1_examples orientation_constraint \
+  --dx -0.04 --dy 0.10 --dz 0.10 \
+  --path-angle-tolerance 0.05 --planning-time 20 \
+  --velocity 0.5 --acceleration 0.5 --execute
+```
+
+#### 9. 障碍物避让
+
+在原路线中间加入直径 6 cm 的临时球体，重新规划避让，结束后清理球体。
+
+```bash
+ros2 run onero_a1_examples planning_scene \
+  --scene-delta -0.4 --obstacle-radius 0.03 --planning-time 20 \
+  --velocity 0.5 --acceleration 0.5 --execute
+```
+
+#### 10. 命名姿态
+
+切换到模型中的 `ready` 姿态。模拟模式也可用它准备末端运动起点。
+
+```bash
+ros2 run onero_a1_examples named_pose --target ready --planning-time 20 \
+  --velocity 0.5 --acceleration 0.5 --execute
+```
+
+#### 11. 夹爪标定与开合
+
+空载且完整开合范围无遮挡时标定；需要中止标定或当前夹爪动作时调用停止服务。
+
+```bash
+ros2 service call /gripper_controller/calibrate std_srvs/srv/Trigger '{}'
+
+# 需要停止时执行
+ros2 service call /gripper_controller/stop std_srvs/srv/Trigger '{}'
+```
+
+标定完成后，依次全开、半开、全闭：
+
+```bash
+ros2 run onero_a1_examples gripper --opening 1 \
+  --velocity 0.5 --acceleration 0.5 --execute
+
+ros2 run onero_a1_examples gripper --opening 0.5 \
+  --velocity 0.5 --acceleration 0.5 --execute
+
+ros2 run onero_a1_examples gripper --opening 0 \
+  --velocity 0.5 --acceleration 0.5 --execute
+```
+
+速度、加速度缩放作用于夹爪规划轨迹，实物开合由适配层开度斜坡执行。
+
+#### 12. 碰撞查询
+
+只查询，不产生运动。输出中的 `状态有效：True/False` 表示所查询姿态是否有效。
+
+```bash
+ros2 run onero_a1_examples collision_check
+ros2 run onero_a1_examples collision_check --target ready
+ros2 run onero_a1_examples collision_check --target home
+```
+
+#### 13. 规划器选择
+
+以下只规划同一关节目标，选择一条运行。支持情况见[规划器选择](README.md#规划器选择)。
+
+```bash
+# OMPL / RRTstar
+ros2 run onero_a1_examples joint_goal --delta -0.1 --pipeline ompl --planner RRTstar \
+  --velocity 0.5 --acceleration 0.5
+
+# CHOMP
+ros2 run onero_a1_examples joint_goal --delta -0.1 --pipeline chomp \
+  --velocity 0.5 --acceleration 0.5
+
+# STOMP
+ros2 run onero_a1_examples joint_goal --delta -0.1 --pipeline stomp \
+  --velocity 0.5 --acceleration 0.5
+```
+
+## 双臂运行指令
+
+“双臂服务”表示同时加载两只手臂；选臂方式由运行的**示例名称**决定：
+
+| 示例 | `--arm` 用法 |
+|---|---|
+| `joint_goal`、`pose_goal`、`cartesian_path`、`orientation_constraint`、`planning_scene`、`gripper` | 用 `left` 或 `right` 选择单侧 |
+| `named_pose`、`record_startup`、`return_startup`、`collision_check` | 可选 `left`、`right` 或 `both` |
+| `dual_joint_goal`、`dual_avoidance`、`dual_gripper` | 自动控制双臂，不传 `--arm` |
+
+### 1. 启动服务
+
+模拟模式：
+
+```bash
+source setup_env.sh
+ros2 launch onero_a1_moveit_config dual_moveit.launch.py hardware_mode:=sim
+```
+
+真机模式：
+
+```bash
+source setup_env.sh
+ros2 launch onero_a1_moveit_config dual_moveit.launch.py \
+  hardware_mode:=real \
+  environment_file:="$PWD/src/onero_a1_moveit_config/config/environment.dual_desktop.yaml"
+```
+
+需要仅预览时，启动命令添加 `allow_execution:=false`。
+在另一终端加载环境，运行下面各项指令：
+
+```bash
+source setup_env.sh
+```
+
+### 2. 基础示例：使用 --arm 选臂
+
+#### 控制单侧
+
+以下以左臂为例。右臂将 `--arm left` 改为 `--arm right`；
+第 1 关节镜像抬臂时，同时将 `--delta -0.2` 改为 `--delta 0.2`。
+每次选择一项，另一只手臂保持当前目标。
+
+```bash
+# 第 1 关节抬臂约 11°
+ros2 run onero_a1_examples joint_goal --arm left --delta -0.2 \
+  --velocity 0.5 --acceleration 0.5 --execute
+
+# 法兰竖直向上走 5 cm
+ros2 run onero_a1_examples cartesian_path --arm left \
+  --shape line --dx 0 --dy 0 --dz 0.05 \
+  --velocity 0.5 --acceleration 0.5 --execute
+
+# 打开单侧夹爪
+ros2 run onero_a1_examples gripper --arm left --opening 1 \
+  --velocity 0.5 --acceleration 0.5 --execute
+```
+
+#### 起始位置记录与返回、命名姿态和碰撞查询
+
+这些基础示例指定 `--arm both` 时作用于两臂，也可用 `left` / `right` 单独操作一侧。
+首次使用或需要更换起始位置时，保持两臂静止并记录；服务重启后无需重复记录。
+
+```bash
+# 同时记录两臂当前位置，不产生运动
+ros2 run onero_a1_examples record_startup --arm both
+```
+
+每项独立运动结束后，用下面的 `return_startup` 回到两臂已记录的位置，再开始下一项。
+
+```bash
+# 两臂回到已记录的起始位置
+ros2 run onero_a1_examples return_startup --arm both \
+  --velocity 0.5 --acceleration 0.5 --execute
+
+# 两臂切换到各自的 ready 姿态
+ros2 run onero_a1_examples named_pose --arm both --target ready --planning-time 20 \
+  --velocity 0.5 --acceleration 0.5 --execute
+
+# 查询统一场景中的当前状态或命名姿态，不产生运动
+ros2 run onero_a1_examples collision_check --arm both
+ros2 run onero_a1_examples collision_check --arm both --target ready
+ros2 run onero_a1_examples collision_check --arm both --target home
+```
+
+### 3. 双臂专用示例：dual_* 自动控制双臂
+
+以下三个示例已固定控制双臂，直接运行即可。
+
+#### 双臂联合运动
+
+同时改变左右第 1 关节的目标约 11°，由一条十四关节轨迹协调执行。
+
+```bash
+ros2 run onero_a1_examples dual_joint_goal \
+  --joint-index 1 --left-delta -0.2 --right-delta 0.2 \
+  --velocity 0.5 --acceleration 0.5 --execute
+```
+
+#### 双臂靠拢与碰撞检查
+
+两侧法兰分别向中间移动 3 cm，联合规划时检查两臂之间的碰撞。
+目标碰撞或不可达时返回失败；具体路线取决于当前姿态和场景。
+
+```bash
+ros2 run onero_a1_examples dual_avoidance --approach 0.03 \
+  --velocity 0.5 --acceleration 0.5 --execute
+```
+
+#### 双夹爪开合
+
+分别设置两侧开度，观察两个夹爪执行不同目标：
+
+```bash
+# 左全开、右半开
+ros2 run onero_a1_examples dual_gripper --left-opening 1 --right-opening 0.5 \
+  --velocity 0.5 --acceleration 0.5 --execute
+
+# 左全闭、右全开
+ros2 run onero_a1_examples dual_gripper --left-opening 0 --right-opening 1 \
+  --velocity 0.5 --acceleration 0.5 --execute
+
+# 两侧全闭
+ros2 run onero_a1_examples dual_gripper --left-opening 0 --right-opening 0 \
+  --velocity 0.5 --acceleration 0.5 --execute
+```
+
+#### 双臂规划器选择
+
+以下只规划同一组双臂关节目标，每次选择一条运行：
+
+```bash
+ros2 run onero_a1_examples dual_joint_goal --pipeline ompl --planner RRTstar \
+  --velocity 0.5 --acceleration 0.5
+
+ros2 run onero_a1_examples dual_joint_goal --pipeline chomp \
+  --velocity 0.5 --acceleration 0.5
+
+ros2 run onero_a1_examples dual_joint_goal --pipeline stomp \
+  --velocity 0.5 --acceleration 0.5
+```
+
+### 4. 双夹爪标定
+
+空载且完整开合范围无遮挡时，分别标定左右夹爪：
+
+```bash
+ros2 service call /left_gripper_controller/calibrate std_srvs/srv/Trigger '{}'
+ros2 service call /right_gripper_controller/calibrate std_srvs/srv/Trigger '{}'
+```

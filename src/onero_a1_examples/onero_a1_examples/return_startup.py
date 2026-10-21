@@ -12,4 +12,4 @@ def example(node):
 
 
 def main(args=None):
-    return run_example("return_startup", __doc__, lambda _: None, example, args)
+    return run_example("return_startup", __doc__, lambda _: None, example, args, allow_both=True)

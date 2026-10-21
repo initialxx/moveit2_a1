@@ -42,6 +42,8 @@ class BridgeWatchdog(Node):
 
         self.declare_parameter("joint_states_topic", "/robot_joint_states")
         self.declare_parameter("controller_name", "arm_controller")
+        self.declare_parameter("controller_names", ["arm_controller"])
+        self.declare_parameter("additional_joint_state_topics", [""])
         self.declare_parameter("controller_manager_ns", "/controller_manager")
         self.declare_parameter("timeout", 1.0)
         self.declare_parameter("check_rate", 10.0)
@@ -51,6 +53,10 @@ class BridgeWatchdog(Node):
         gp = self.get_parameter
         self._topic = gp("joint_states_topic").value
         self._controller = gp("controller_name").value
+        self._controllers = list(gp("controller_names").value)
+        if self._controllers == ["arm_controller"]:
+            self._controllers = [self._controller]
+        self._controller = ",".join(self._controllers)
         self._cm_ns = gp("controller_manager_ns").value.rstrip("/")
         self._timeout = float(gp("timeout").value)
         self._auto_deactivate = bool(gp("auto_deactivate").value)
@@ -69,7 +75,11 @@ class BridgeWatchdog(Node):
             durability=DurabilityPolicy.VOLATILE,
             history=HistoryPolicy.KEEP_LAST,
         )
-        self.create_subscription(JointState, self._topic, self._on_state, qos)
+        topics = [self._topic]+[t for t in gp("additional_joint_state_topics").value if t]
+        self._topic_times = dict.fromkeys(topics)
+        self._watch_subscriptions = [self.create_subscription(
+            JointState, topic, lambda msg, topic=topic: self._on_topic_state(topic, msg), qos)
+            for topic in topics]
         self._switch_cli = self.create_client(
             SwitchController, f"{self._cm_ns}/switch_controller"
         )
@@ -77,11 +87,18 @@ class BridgeWatchdog(Node):
         self._timer = self.create_timer(check_dt, self._check)
 
         self.get_logger().info(
-            f"看门狗已启动 | 监控 {self._topic} | 超时 {self._timeout:.1f}s "
+            f"看门狗已启动 | 监控 {','.join(topics)} | 超时 {self._timeout:.1f}s "
             f"| 控制器 {self._controller} | 自动停用={self._auto_deactivate}"
         )
 
     # ─── 回调 ────────────────────────────────────────────────────────
+
+    def _on_topic_state(self, topic, msg):
+        now = time.monotonic()
+        self._topic_times[topic] = now
+        if all(t is not None and now-t <= self._timeout for t in self._topic_times.values()):
+            self._on_state(msg)
+            self._last_msg_time = min(self._topic_times.values())
 
     def _on_state(self, _msg: JointState) -> None:
         self._last_msg_time = time.monotonic()
@@ -129,7 +146,7 @@ class BridgeWatchdog(Node):
                 "不是真实位置。\n"
                 "        最可能的原因：topic_bridge 节点启动失败。"
                 "请查看 launch 输出中 topic_bridge 的报错 —— 常见的是 "
-                "onero_sdk 未安装（source setup_env.sh，或 pip install onero-sdk）、"
+                "onero-sdk 运行环境未就绪（请 source setup_env.sh）、"
                 "CAN 接口不存在或未 UP。"
             )
         else:
@@ -166,11 +183,11 @@ class BridgeWatchdog(Node):
 
         req = SwitchController.Request()
         if activate:
-            req.activate_controllers = [self._controller]
+            req.activate_controllers = getattr(self, "_controllers", [self._controller])
             req.deactivate_controllers = []
         else:
             req.activate_controllers = []
-            req.deactivate_controllers = [self._controller]
+            req.deactivate_controllers = getattr(self, "_controllers", [self._controller])
         # BEST_EFFORT=1：不因资源冲突而拒绝
         req.strictness = SwitchController.Request.BEST_EFFORT
         req.activate_asap = True

@@ -30,7 +30,7 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from moveit_configs_utils import MoveItConfigsBuilder
-from onero_a1_bringup.hardware_mode import configure_hardware_mode, mode_default
+from onero_a1_bringup.hardware_mode import arm_default, configure_arm, configure_hardware_mode, mode_default
 from onero_a1_bringup.controller_tolerances import (
     TOLERANCE_ARGUMENTS, controller_config_from_launch, execution_goal_margin,
     tolerance_launch_arguments,
@@ -48,9 +48,10 @@ def generate_launch_description():
         OpaqueFunction(function=configure_hardware_mode),
         DeclareLaunchArgument("hardware_mode", default_value="sim", choices=["sim", "real"],
                              description="sim: 话题桥模拟，不连接 CAN；real: SDK 真机 CAN"),
+        DeclareLaunchArgument("arm", default_value="right", choices=["left", "right"]),
         DeclareLaunchArgument("rviz", default_value="true"),
-        DeclareLaunchArgument("can_channel", default_value="can0"),
-        DeclareLaunchArgument("model", default_value="A1R"),
+        DeclareLaunchArgument("can_channel", default_value=arm_default("can_channel")),
+        DeclareLaunchArgument("model", default_value=arm_default("model")),
         DeclareLaunchArgument(
             "kp", default_value=mode_default("kp"),
             description="全关节位置比例增益；默认 50（模拟不使用增益）",
@@ -60,7 +61,7 @@ def generate_launch_description():
             description="SDK servoj 全关节速度阻尼增益；仅启动时设置",
         ),
         *tolerance_launch_arguments(),
-        DeclareLaunchArgument("mounting", default_value="upright"),
+        DeclareLaunchArgument("mounting", default_value=arm_default("mounting")),
         DeclareLaunchArgument(
             "velocity_feedforward", default_value=mode_default("velocity_feedforward"),
             description="全部七关节速度前馈；默认 real=true、sim=false；可显式覆盖"),
@@ -119,6 +120,7 @@ def generate_launch_description():
                 path, mounting=LaunchConfiguration("mounting").perform(context),
                 real_hardware=real_hardware,
                 allow_execution=allow_execution,
+                mirror_for_left=LaunchConfiguration("arm").perform(context) == "left",
             )
         return [
             SetLaunchConfiguration("onero_execution_goal_margin", str(goal_margin)),
@@ -150,10 +152,12 @@ def generate_launch_description():
                 "joint_commands_topic": "/robot_joint_commands",
                 "joint_states_topic": "/robot_joint_states",
                 "gripper_model": LaunchConfiguration("gripper_model"),
+                "arm": LaunchConfiguration("arm"),
             },
         )
         .robot_description_semantic(file_path="config/onero_a1.srdf.xacro",
-                                    mappings={"gripper_model": LaunchConfiguration("gripper_model")})
+                                    mappings={"gripper_model": LaunchConfiguration("gripper_model"),
+                                              "arm": LaunchConfiguration("arm")})
         .robot_description_kinematics(file_path="config/kinematics.yaml")
         .joint_limits(file_path="config/joint_limits.yaml")
         .trajectory_execution(file_path="config/moveit_controllers.yaml")
@@ -171,6 +175,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             **{name: LaunchConfiguration(name) for name in TOLERANCE_ARGUMENTS},
+            "arm": LaunchConfiguration("arm"),
             "hardware_mode": LaunchConfiguration("hardware_mode"),
             "can_channel": LaunchConfiguration("can_channel"),
             "model": LaunchConfiguration("model"),
@@ -200,6 +205,8 @@ def generate_launch_description():
         output="screen",
         parameters=[moveit_config.to_dict(), {
             "allow_trajectory_execution": ParameterValue(LaunchConfiguration("allow_execution"), value_type=bool),
+            "ompl.arm.projection_evaluator": LaunchConfiguration("onero_projection_evaluator"),
+            "moveit_simple_controller_manager.arm_controller.joints": LaunchConfiguration("onero_joint_names"),
             "trajectory_execution.allowed_goal_duration_margin": ParameterValue(
                 LaunchConfiguration("onero_execution_goal_margin"), value_type=float),
             "moveit_simple_controller_manager.controller_names": LaunchConfiguration("onero_moveit_controllers"),
@@ -235,6 +242,8 @@ def generate_launch_description():
             "real_hardware": ParameterValue(LaunchConfiguration("onero_real_hardware"), value_type=bool),
             "allow_execution": ParameterValue(LaunchConfiguration("allow_execution"), value_type=bool),
             "gripper_model": LaunchConfiguration("gripper_model"),
+            "joints": LaunchConfiguration("onero_joint_names"),
+            "mirror_for_left": ParameterValue(LaunchConfiguration("onero_left_arm"), value_type=bool),
         }],
     )
     environment_arm_spawner = Node(
@@ -276,10 +285,7 @@ def generate_launch_description():
             {
                 "topic": "/joint_states",
                 "gripper_model": LaunchConfiguration("gripper_model"),
-                "joints": [
-                    "joint1-a1_r", "joint2-a1_r", "joint3-a1_r", "joint4-a1_r",
-                    "joint5-a1_r", "joint6-a1_r", "joint7-a1_r",
-                ],
+                "joints": LaunchConfiguration("onero_joint_names"),
             }
         ],
     )
@@ -302,6 +308,7 @@ def generate_launch_description():
 
     return LaunchDescription(
         args + [
+            OpaqueFunction(function=configure_arm),
             OpaqueFunction(function=prepare_environment),
             RegisterEventHandler(OnProcessExit(target_action=environment_loader, on_exit=after_environment)),
             RegisterEventHandler(OnProcessExit(target_action=environment_arm_spawner, on_exit=after_environment_controller)),

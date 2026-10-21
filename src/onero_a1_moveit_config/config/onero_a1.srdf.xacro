@@ -1,7 +1,13 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="onero_a1">
   <xacro:arg name="gripper_model" default="none"/>
-  <xacro:include filename="onero_a1.srdf"/>
+  <xacro:arg name="arm" default="right"/>
+  <xacro:if value="${'$(arg arm)' == 'right'}">
+    <xacro:include filename="onero_a1.srdf"/>
+  </xacro:if>
+  <xacro:if value="${'$(arg arm)' == 'left'}">
+    <xacro:include filename="onero_a1_left.srdf"/>
+  </xacro:if>
   <xacro:if value="${'$(arg gripper_model)' == 'woan_picker'}">
     <xacro:include filename="onero_woan_picker.srdf"/>
   </xacro:if>
