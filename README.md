@@ -68,7 +68,7 @@ ros2 launch onero_a1_moveit_config moveit.launch.py hardware_mode:=sim
 
 # 单臂真机：加载桌面模型，预览规划路径
 ros2 launch onero_a1_moveit_config moveit.launch.py \
-  hardware_mode:=real with_gripper:=true allow_execution:=false \
+  hardware_mode:=real allow_execution:=false \
   environment_file:="$PWD/src/onero_a1_moveit_config/config/environment.desktop.yaml"
 ```
 
@@ -163,7 +163,7 @@ ros2 launch onero_a1_moveit_config dual_moveit.launch.py hardware_mode:=real
 | 参数 | 默认值 | 可选值 / 单位 | 作用 | 适用入口 |
 |---|---|---|---|---|
 | `gripper_model` | `woan_picker` | `woan_picker`、`none` | 选择夹爪模型和开合接口 | 单臂、双臂 |
-| `with_gripper` | 单臂：`false`；双臂：`true` | `true`、`false` | 重力补偿是否计入原装夹爪重量 | 单臂、双臂 |
+| `with_gripper` | `true` | `true`、`false` | 启用 onero-sdk 带夹爪重力补偿档位 | 单臂、双臂 |
 | `gripper_calibration_file` | 留空，按型号和 CAN 通道自动选择 | 标定文件路径；`none` 禁用文件 | 加载或保存夹爪开合标定 | 单臂 |
 | `gripper_closed_sdk_opening` | `0.0` | `[0, 1]`，需小于全开端点 | 手工指定全闭时对应的 onero-sdk 开度 | 单臂 |
 | `gripper_open_sdk_opening` | `1.0` | `[0, 1]`，需大于全闭端点 | 手工指定全开时对应的 onero-sdk 开度 | 单臂 |
@@ -289,7 +289,9 @@ ros2 service call /gripper_controller/stop std_srvs/srv/Trigger '{}'
 开合标定相关启动选项见[夹爪参数](#夹爪参数)。
 
 模型保留 onero-sdk 的安装变换和 CAD 惯性；选择视觉模型不会自动修改 onero-sdk payload 或 TCP。
-onero-sdk 原装夹爪补偿档位由 `with_gripper` 单独控制。夹爪开合不包含带物夹取成功判定。
+onero-sdk 原装夹爪补偿档位由 `with_gripper` 单独控制，单臂和双臂默认均为 `true`，
+按带夹爪的经验系数修正重力补偿力矩。实物未装夹爪时设置 `with_gripper:=false`。
+夹爪开合不包含带物夹取成功判定。
 
 ## 模型与参数配置
 

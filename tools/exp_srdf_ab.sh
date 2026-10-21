@@ -13,12 +13,17 @@
 # 不要用 set -u：ROS 的 setup.bash 会引用未绑定变量并中止
 set -o pipefail
 
+if [[ $# -ne 1 ]]; then
+  echo "用法：bash $0 <对照 SRDF 文件>" >&2
+  exit 2
+fi
+FOREIGN="$(realpath -e -- "$1")" || exit 2
+
 WS="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$WS"
 
 SRDF_REL="src/onero_a1_moveit_config/config/onero_a1.srdf"
 SRDF="$WS/$SRDF_REL"
-FOREIGN="/home/initialxx/project/armsdk/ros2/onero_moveit_config/config/a1.srdf"
 LOGDIR="$WS/.logs"
 mkdir -p "$LOGDIR"
 

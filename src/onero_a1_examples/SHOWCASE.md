@@ -1,6 +1,6 @@
 # 功能示例运行指令
 
-以下命令在工作区根目录运行。速度和加速度缩放统一使用 `0.5`。
+以下命令在工作区根目录运行。轨迹示例的速度和加速度缩放统一使用 `0.5`。
 功能说明、源码及参数见 [Examples 指南](README.md)，启动参数见[服务启动参数](../../README.md#服务启动参数)。
 
 - [单臂运行指令](#单臂运行指令)：右臂或左臂独立运行。
@@ -10,7 +10,7 @@
 
 - 每个终端先执行 `source setup_env.sh`，自动准备依赖、构建并加载环境。
 - 单臂和双臂服务每次选择一套；切换 sim / real 前结束上一套服务。
-- 动作先去掉 `--execute` 规划预览，确认路径后再执行；执行时重新规划。
+- 轨迹示例先去掉 `--execute` 规划预览，确认路径后再执行；执行时重新规划。
 - 先用 `record_startup` 记录起始位置；每项独立运动完成后返回该位置，再进行下一项，相对位移从当前反馈计算。
 - 相同机械臂配置下，服务重启后沿用已有记录；仅在需要更换起始位置时重新记录。
 - 真机从已确认具有运动空间的悬空姿态启动。`ready` / `home` 是模型命名姿态。
@@ -46,7 +46,7 @@ ros2 launch onero_a1_moveit_config moveit.launch.py hardware_mode:=sim arm:=righ
 
 ```bash
 ros2 launch onero_a1_moveit_config moveit.launch.py \
-  hardware_mode:=real arm:=right with_gripper:=true \
+  hardware_mode:=real arm:=right \
   environment_file:="$PWD/src/onero_a1_moveit_config/config/environment.desktop.yaml"
 ```
 
@@ -217,6 +217,25 @@ ros2 run onero_a1_examples joint_goal --delta 0.1 --pipeline stomp \
   --velocity 0.5 --acceleration 0.5
 ```
 
+#### 14. 零重力拖动（仅 real）
+
+保持手臂静止并用手托住后进入拖动，轻推手臂到新位置。
+停止拖动后按 Ctrl+C，恢复当前位置保持和轨迹控制；松手不会自动退出拖动模式。
+该模式不经过 MoveIt 避障规划，重力补偿不完全时可能缓慢漂移。
+
+```bash
+# 只检查条件，不改变控制模式
+ros2 run onero_a1_examples freedrive
+
+# 进入拖动，Ctrl+C 退出
+ros2 run onero_a1_examples freedrive --damping 0.3 --execute
+
+# 也可指定 30 秒后自动退出
+ros2 run onero_a1_examples freedrive --damping 0.3 --duration 30 --execute
+```
+
+拖动阻尼越大越难拖动；速度与加速度由手动动作决定，不使用轨迹缩放参数。
+
 ### 左单臂运行指令
 
 #### 1. 启动服务
@@ -237,7 +256,7 @@ ros2 launch onero_a1_moveit_config moveit.launch.py hardware_mode:=sim arm:=left
 
 ```bash
 ros2 launch onero_a1_moveit_config moveit.launch.py \
-  hardware_mode:=real arm:=left with_gripper:=true \
+  hardware_mode:=real arm:=left \
   environment_file:="$PWD/src/onero_a1_moveit_config/config/environment.desktop.yaml"
 ```
 
@@ -408,6 +427,25 @@ ros2 run onero_a1_examples joint_goal --delta -0.1 --pipeline stomp \
   --velocity 0.5 --acceleration 0.5
 ```
 
+#### 14. 零重力拖动（仅 real）
+
+保持手臂静止并用手托住后进入拖动，轻推手臂到新位置。
+停止拖动后按 Ctrl+C，恢复当前位置保持和轨迹控制；松手不会自动退出拖动模式。
+该模式不经过 MoveIt 避障规划，重力补偿不完全时可能缓慢漂移。
+
+```bash
+# 只检查条件，不改变控制模式
+ros2 run onero_a1_examples freedrive
+
+# 进入拖动，Ctrl+C 退出
+ros2 run onero_a1_examples freedrive --damping 0.3 --execute
+
+# 也可指定 30 秒后自动退出
+ros2 run onero_a1_examples freedrive --damping 0.3 --duration 30 --execute
+```
+
+拖动阻尼越大越难拖动；速度与加速度由手动动作决定，不使用轨迹缩放参数。
+
 ## 双臂运行指令
 
 “双臂服务”表示同时加载两只手臂；选臂方式由运行的**示例名称**决定：
@@ -415,8 +453,8 @@ ros2 run onero_a1_examples joint_goal --delta -0.1 --pipeline stomp \
 | 示例 | `--arm` 用法 |
 |---|---|
 | `joint_goal`、`pose_goal`、`cartesian_path`、`orientation_constraint`、`planning_scene`、`gripper` | 用 `left` 或 `right` 选择单侧 |
-| `named_pose`、`record_startup`、`return_startup`、`collision_check` | 可选 `left`、`right` 或 `both` |
-| `dual_joint_goal`、`dual_avoidance`、`dual_gripper` | 自动控制双臂，不传 `--arm` |
+| `named_pose`、`record_startup`、`return_startup`、`collision_check`、`freedrive` | 可选 `left`、`right` 或 `both` |
+| `dual_joint_goal`、`dual_cartesian_square`、`dual_gripper` | 自动控制双臂，不传 `--arm` |
 
 ### 1. 启动服务
 
@@ -493,6 +531,22 @@ ros2 run onero_a1_examples collision_check --arm both --target ready
 ros2 run onero_a1_examples collision_check --arm both --target home
 ```
 
+#### 零重力拖动（仅 real）
+
+选择一侧或两臂进入拖动。保持所选手臂静止并用手托住后进入；停止拖动后按 Ctrl+C 退出并保持当前位置。
+手动拖动不经过 MoveIt 避障规划，应自行留出两臂、桌面和支架之间的空间。
+
+```bash
+# 左臂拖动，右臂继续保持
+ros2 run onero_a1_examples freedrive --arm left --damping 0.3 --execute
+
+# 右臂拖动，左臂继续保持
+ros2 run onero_a1_examples freedrive --arm right --damping 0.3 --execute
+
+# 同时进入双臂拖动
+ros2 run onero_a1_examples freedrive --arm both --damping 0.3 --execute
+```
+
 ### 3. 双臂专用示例：dual_* 自动控制双臂
 
 以下三个示例已固定控制双臂，直接运行即可。
@@ -507,13 +561,13 @@ ros2 run onero_a1_examples dual_joint_goal \
   --velocity 0.5 --acceleration 0.5 --execute
 ```
 
-#### 双臂靠拢与碰撞检查
+#### 双臂同时沿 YZ 平面画正方形
 
-两侧法兰分别向中间移动 3 cm，联合规划时检查两臂之间的碰撞。
-目标碰撞或不可达时返回失败；具体路线取决于当前姿态和场景。
+两侧法兰分别从当前位置出发，先向上 10 cm，再各向外侧 10 cm、向下、回到起点，保持各自朝向。
+两臂同时到达每个角点并短暂停顿。整圈路径不可达或存在碰撞时，不执行运动。
 
 ```bash
-ros2 run onero_a1_examples dual_avoidance --approach 0.03 \
+ros2 run onero_a1_examples dual_cartesian_square --size 0.10 \
   --velocity 0.5 --acceleration 0.5 --execute
 ```
 

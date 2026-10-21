@@ -182,6 +182,20 @@ class SDKArmSession:
         self._requested_torque_ff = list(torques)
         return self.arm.servoj(positions, kp=kp, kd=kd, velocities=velocities, tau_ff=torques)
 
+    def freedrive_step(self, damping):
+        if not self._gravity:
+            raise RuntimeError('Freedrive requires gravity compensation')
+        self._transport.last_command = None
+        self._requested_torque_ff = None
+        return self.arm.freedrive_step(damping=damping)
+
+    def hold_current(self, kp, kd):
+        # This public SDK hold operation sends current-pose gravity feedforward
+        # and reconciles its rate limiter after externally guided movement.
+        self.arm.set_gains(kp, kd)
+        self.arm.force_mode_disable()
+        return self.arm.state
+
     def disable(self):
         self.arm.disable()
 

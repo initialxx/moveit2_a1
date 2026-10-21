@@ -69,7 +69,7 @@ def generate_launch_description():
             "velocity_feedforward_scale", default_value="[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]",
             description="兼容参数，仅接受全 1；使用 velocity_feedforward 统一开关"),
         DeclareLaunchArgument("velocity_feedforward_timeout", default_value="0.1"),
-        DeclareLaunchArgument("with_gripper", default_value="false"),
+        DeclareLaunchArgument("with_gripper", default_value="true"),
         DeclareLaunchArgument("gripper_model", default_value="woan_picker", choices=["none", "woan_picker"],
                              description="夹爪模型与开合接口；with_gripper 单独选择 SDK 重力档位"),
         DeclareLaunchArgument("gripper_closed_sdk_opening", default_value="0.0",

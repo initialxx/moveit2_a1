@@ -225,6 +225,11 @@ class MoveItClient(Node):
             raise MoveItError('记录期间手臂服务已重启，请重新记录起始位置')
         return self.startup_snapshot()
 
+    def freedrive(self, *, damping=.3, duration=None, execute=False):
+        from .freedrive import run_freedrive
+        return run_freedrive(self, damping=damping, duration=duration,
+                             execute=execute, error=MoveItError)
+
     def fk(self, q, link=None):
         request = GetPositionFK.Request(robot_state=self.robot_state(q), fk_link_names=[link or self.tip_link])
         request.header.frame_id = self.args.frame
@@ -295,14 +300,19 @@ class MoveItClient(Node):
     def on_action_result(self, client, response):
         """Optional application hook for consuming a completed Action result."""
 
-    def cartesian_path(self, start, waypoints):
+    def cartesian_path(self, start, waypoints, *, group=None, link=None):
         request = GetCartesianPath.Request(
-            start_state=self.planning_start_state(start), group_name=self.group, link_name=self.tip_link,
+            start_state=self.planning_start_state(start), group_name=group or self.group,
+            link_name=link or self.tip_link,
             waypoints=waypoints, max_step=.003, revolute_jump_threshold=.2, avoid_collisions=True,
             max_velocity_scaling_factor=self.args.velocity,
             max_acceleration_scaling_factor=self.args.acceleration)
         request.header.frame_id = self.args.frame
         return self.call(GetCartesianPath, "/compute_cartesian_path", request)
+
+    def dual_cartesian_path(self, start, left_waypoints, right_waypoints):
+        from .dual_cartesian import plan_dual_cartesian_path
+        return plan_dual_cartesian_path(self, start, left_waypoints, right_waypoints, MoveItError)
 
     def plan(self, start, goal_constraints, path_constraints=None, group=None):
         pipeline = getattr(self.args, "pipeline", "ompl")

@@ -8,8 +8,16 @@
 #
 # 注意：全程不改 armsdk 仓库。步骤 2 用的是 onero_moveit_config 的**副本**。
 
-AS="/home/initialxx/project/armsdk/ros2"
-WS="/home/initialxx/project/moveit2_ws"
+if [[ $# -ne 1 ]]; then
+  echo "用法：bash $0 <待对照的 ROS 2 软件包目录>" >&2
+  exit 2
+fi
+AS="$(cd -- "$1" && pwd)" || exit 2
+if [[ ! -d "$AS/onero_ros2" || ! -d "$AS/onero_moveit_config" ]]; then
+  echo "对照目录必须包含 onero_ros2 和 onero_moveit_config。" >&2
+  exit 2
+fi
+WS="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || exit 1
 LOGDIR="$WS/.logs"
 PREFIX="$LOGDIR/exp_fake_prefix2"
 PATCHED="$LOGDIR/exp_patched_moveit_config"

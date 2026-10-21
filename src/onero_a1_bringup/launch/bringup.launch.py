@@ -60,7 +60,7 @@ def generate_launch_description():
                              description="兼容参数，仅接受全 1；使用 velocity_feedforward 统一开关"),
         DeclareLaunchArgument("velocity_feedforward_timeout", default_value="0.1"),
         DeclareLaunchArgument("mounting", default_value=arm_default("mounting")),
-        DeclareLaunchArgument("with_gripper", default_value="false"),
+        DeclareLaunchArgument("with_gripper", default_value="true"),
         DeclareLaunchArgument("gripper_model", default_value="woan_picker", choices=["none", "woan_picker"]),
         DeclareLaunchArgument("allow_gripper_execution", default_value="true"),
         DeclareLaunchArgument("gripper_closed_sdk_opening", default_value="0.0"),

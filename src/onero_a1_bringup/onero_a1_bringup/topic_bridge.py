@@ -37,10 +37,10 @@ import uuid
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
-from rcl_interfaces.msg import ParameterDescriptor
+from rcl_interfaces.msg import ParameterDescriptor, SetParametersResult
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
-from std_srvs.srv import Trigger
+from std_srvs.srv import SetBool, Trigger
 
 from .velocity_feedforward import VelocityFeedforward
 
@@ -102,7 +102,7 @@ class OneroTopicBridge(Node):
         self.declare_parameter("kd", 1.0, descriptor=ParameterDescriptor(
             read_only=True, description="速度阻尼增益，仅启动时设置"))
         self.declare_parameter("mounting", "upright")
-        self.declare_parameter("with_gripper", False)
+        self.declare_parameter("with_gripper", True)
         self.declare_parameter("gripper_model", "none", descriptor=ParameterDescriptor(read_only=True))
         self.declare_parameter("allow_gripper_execution", True, descriptor=ParameterDescriptor(read_only=True))
         self.declare_parameter("activate_gripper_on_start", True, descriptor=ParameterDescriptor(read_only=True))
@@ -140,6 +140,7 @@ class OneroTopicBridge(Node):
         #   安装方向、夹爪标定和重力计算均由 SDK Arm 负责。
         self.declare_parameter("gravity_compensation", True)
         self.declare_parameter("max_gravity_torque", 15.0)
+        self.declare_parameter("freedrive_damping", .3)
 
         gp = self.get_parameter
         self._joint_names: list[str] = list(gp("joint_names").value)
@@ -174,6 +175,10 @@ class OneroTopicBridge(Node):
         # ─── 状态（由控制线程写，锁内交换）────────────────────────────
         self._lock = threading.Lock()
         self._hardware_lock = threading.RLock()
+        self._freedrive = False
+        self._freedrive_deadline = 0.
+        self._freedrive_guard = False
+        self.add_on_set_parameters_callback(self._validate_freedrive_parameters)
         self._cmd_pos = [0.0] * self._n          # 最新目标位置
         self._state_pos = [0.0] * self._n        # 当前关节位置
         if self._simulate:
@@ -281,6 +286,9 @@ class OneroTopicBridge(Node):
             self._disable_srv = self.create_service(
                 Trigger, "~/disable", self._on_disable
             )
+        self._freedrive_srv = self.create_service(SetBool, '~/freedrive', self._on_freedrive)
+        self._freedrive_heartbeat_srv = self.create_service(
+            Trigger, '~/freedrive_heartbeat', self._on_freedrive_heartbeat)
 
         # ─── 控制线程 ────────────────────────────────────────────────
         self._running = True
@@ -361,6 +369,69 @@ class OneroTopicBridge(Node):
 
     # ─── 使能 / 失能 ─────────────────────────────────────────────────
 
+    def _validate_freedrive_parameters(self, parameters):
+        for parameter in parameters:
+            if parameter.name == 'freedrive_damping':
+                if (type(parameter.value) not in (int, float) or not math.isfinite(parameter.value)
+                        or not 0. <= parameter.value <= 5.):
+                    return SetParametersResult(successful=False, reason='拖动阻尼必须在 [0, 5] 内')
+                if self._freedrive:
+                    return SetParametersResult(successful=False, reason='拖动期间不能修改阻尼')
+        return SetParametersResult(successful=True)
+
+    def _on_freedrive(self, request, response):
+        try:
+            with self._hardware_lock:
+                if request.data:
+                    with self._lock:
+                        if self._backend is None:
+                            raise RuntimeError('零重力拖动仅支持 real 模式')
+                        if not self._enabled or self._hold or not self._gravity_compensation:
+                            raise RuntimeError('需要电机已使能、无故障保持且重力补偿已开启')
+                        if self._freedrive:
+                            raise RuntimeError('该手臂已被其他拖动示例占用')
+                        if any(abs(v) > .02 for v in self._state_vel):
+                            raise RuntimeError('请等待手臂停止运动后再进入拖动模式')
+                        self._freedrive_damping = float(self.get_parameter('freedrive_damping').value)
+                        if not math.isfinite(self._freedrive_damping) or not 0. <= self._freedrive_damping <= 5.:
+                            raise RuntimeError('拖动阻尼必须在 [0, 5] 内')
+                        self._freedrive = True
+                        self._freedrive_deadline = time.monotonic()+2.
+                        self._freedrive_guard = True
+                        self._velocity_ff.clear('freedrive', reset_order=True)
+                else:
+                    self._finish_freedrive()
+            response.success = True
+            response.message = '已进入重力补偿拖动' if request.data else '已退出拖动并保持当前位置'
+        except Exception as exc:
+            response.success = False
+            response.message = str(exc)
+        return response
+
+    def _on_freedrive_heartbeat(self, _request, response):
+        with self._lock:
+            response.success = self._freedrive and self._enabled and not self._hold
+            if response.success:
+                self._freedrive_deadline = time.monotonic()+2.
+        response.message = '拖动中' if response.success else '拖动已结束'
+        return response
+
+    def _finish_freedrive(self):
+        """Called with the hardware lock; never release a stale controller target."""
+        if not self._freedrive:
+            return
+        state = self._backend.hold_current(self._kp, self._kd) if self._enabled else None
+        with self._lock:
+            if state is not None:
+                self._state_pos = list(state.joints)
+                self._state_vel = list(state.velocities)
+            self._cmd_pos = list(self._state_pos)
+            self._last_cmd_stamp = None
+            self._velocity_ff.clear('freedrive_exit', reset_order=True)
+            self._freedrive = False
+            self._freedrive_guard = True
+        self._publish_state()
+
     def _on_enable(self, _request, response):
         """重新使能电机。"""
         if self._enabled:
@@ -407,6 +478,7 @@ class OneroTopicBridge(Node):
         try:
             with self._lock:
                 self._enabled = False             # 控制循环随即停止下发
+                self._freedrive = False
                 self._velocity_ff.clear("disabled")
             with self._hardware_lock:
                 self._backend.disable()
@@ -465,6 +537,7 @@ class OneroTopicBridge(Node):
                     self._backend.disable()
                 with self._lock:
                     self._enabled = False
+                    self._freedrive = False
                     self._velocity_ff.clear("fault_disabled")
             except Exception as e:  # noqa: BLE001
                 self.get_logger().error(f"断使能失败: {e}")
@@ -487,6 +560,17 @@ class OneroTopicBridge(Node):
 
         accepted = 0
         with self._lock:
+            if self._freedrive:
+                return
+            if self._freedrive_guard:
+                positions = dict(zip(msg.name, msg.position))
+                # Resume only after the controller has aligned to the guided
+                # pose. Old idle or queued trajectory commands stay blocked.
+                if any(name not in positions or not math.isfinite(positions[name])
+                       or abs(positions[name]-self._cmd_pos[index]) > .01
+                       for index, name in enumerate(self._joint_names)):
+                    return
+                self._freedrive_guard = False
             if self._hold:
                 # 已因硬件故障进入保持模式：忽略一切新目标
                 return
@@ -562,9 +646,25 @@ class OneroTopicBridge(Node):
                     with self._hardware_lock:
                         if not self._enabled:
                             continue
-                        state = self._backend.servoj(
-                            cmd, kp=self._kp, kd=self._kd, velocities=velocity
-                        )
+                        if self._freedrive and (time.monotonic() >= self._freedrive_deadline or self._hold):
+                            self._finish_freedrive()
+                            cmd = list(self._cmd_pos)
+                            velocity = [0.]*self._n
+                            self.get_logger().warning('拖动会话已结束，保持当前位置')
+                        if self._freedrive:
+                            state = self._backend.freedrive_step(self._freedrive_damping)
+                        else:
+                            # A mode switch can occur after the snapshot at the
+                            # start of this cycle; guarded holds use the new pose.
+                            with self._lock:
+                                cmd = list(self._cmd_pos)
+                                _, velocity, _ = self._velocity_ff.sample(
+                                    now_s=time.monotonic(), now_ros_ns=self.get_clock().now().nanoseconds)
+                                if self._freedrive_guard:
+                                    velocity = [0.]*self._n
+                            state = self._backend.servoj(
+                                cmd, kp=self._kp, kd=self._kd, velocities=velocity
+                            )
                         applied = self._backend.last_command
                     io_end = time.monotonic()
                     with self._lock:
@@ -577,6 +677,17 @@ class OneroTopicBridge(Node):
                     self.get_logger().error(
                         f"控制周期失败: {e}", throttle_duration_sec=1.0
                     )
+                    if self._freedrive:
+                        try:
+                            with self._hardware_lock:
+                                self._finish_freedrive()
+                        except Exception as hold_error:
+                            with self._lock:
+                                self._freedrive = False
+                                self._freedrive_guard = True
+                                self._cmd_pos = list(self._state_pos)
+                                self._velocity_ff.clear('freedrive_failed', reset_order=True)
+                            self.get_logger().error(f'拖动中断且持位请求失败: {hold_error}')
             else:
                 self._step_simulation(cmd)
                 io_end = time.monotonic()

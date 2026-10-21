@@ -19,8 +19,9 @@
 | `gripper` | [gripper.py](onero_a1_examples/gripper.py) | 通过 MoveIt 规划并执行夹爪开合 |
 | `record_startup` | [record_startup.py](onero_a1_examples/record_startup.py) | 将当前关节位置保存为起始位置，不产生运动 |
 | `return_startup` | [return_startup.py](onero_a1_examples/return_startup.py) | 规划返回已记录的起始位置 |
+| `freedrive` | [freedrive.py](onero_a1_examples/freedrive.py) | 重力补偿手动拖动，退出后保持当前位置 |
 | `dual_joint_goal` | [dual_joint_goal.py](onero_a1_examples/dual_joint_goal.py) | 双臂十四关节联合规划与执行 |
-| `dual_avoidance` | [dual_avoidance.py](onero_a1_examples/dual_avoidance.py) | 双臂靠拢、两臂间碰撞检查及联合规划 |
+| `dual_cartesian_square` | [dual_cartesian_square.py](onero_a1_examples/dual_cartesian_square.py) | 双臂同时沿 YZ 平面画正方形，保持各自朝向 |
 | `dual_gripper` | [dual_gripper.py](onero_a1_examples/dual_gripper.py) | 分别设置双夹爪开度并协调执行 |
 
 公共接口位于 `onero_a1_common/moveit_client.py`，封装状态读取、FK、规划、显示、执行及取消。
@@ -59,8 +60,8 @@
 | 示例 | 选臂方式 |
 |---|---|
 | `joint_goal`、`pose_goal`、`cartesian_path`、`orientation_constraint`、`planning_scene`、`gripper` | `--arm left` 或 `--arm right`，控制单侧 |
-| `named_pose`、`record_startup`、`return_startup`、`collision_check` | `--arm left`、`--arm right` 或 `--arm both` |
-| `dual_joint_goal`、`dual_avoidance`、`dual_gripper` | 自动控制双臂，不接受 `--arm` |
+| `named_pose`、`record_startup`、`return_startup`、`collision_check`、`freedrive` | `--arm left`、`--arm right` 或 `--arm both` |
+| `dual_joint_goal`、`dual_cartesian_square`、`dual_gripper` | 自动控制双臂，不接受 `--arm` |
 
 world 原点位于两根部安装中心的中点，坐标轴方向与单臂一致。
 具体操作见[双臂运行指令](SHOWCASE.md#双臂运行指令)。
@@ -72,13 +73,13 @@ world 原点位于两根部安装中心的中点，坐标轴方向与单臂一�
 | 示例 | OMPL | CHOMP | STOMP |
 |---|---|---|---|
 | `joint_goal`、`named_pose`、`return_startup`、`planning_scene` | 支持 | 支持 | 支持 |
-| `dual_joint_goal`、`dual_avoidance` | 支持 | 支持 | 支持 |
+| `dual_joint_goal` | 支持 | 支持 | 支持 |
 | `pose_goal` | 支持 | 不支持 | 支持 |
 | `orientation_constraint` | 支持 | 不支持 | 不支持 |
 | `gripper`、`dual_gripper` | 支持 | 不支持 | 不支持 |
 
-夹爪固定使用 OMPL / RRTConnect。`cartesian_path` 使用独立的笛卡尔路径接口，
-`collision_check` 只查询碰撞，`record_startup` 只记录当前位置，这些示例不选择规划器。
+夹爪固定使用 OMPL / RRTConnect。`cartesian_path`、`dual_cartesian_square` 使用独立的笛卡尔路径接口，
+`collision_check` 只查询碰撞，`record_startup` 只记录当前位置，`freedrive` 切换手动拖动模式，均不选择规划器。
 
 ## 示例参数
 
@@ -88,15 +89,15 @@ world 原点位于两根部安装中心的中点，坐标轴方向与单臂一�
 
 分类：[通用设置](#通用设置) · [速度与规划](#速度与规划) · [关节与命名姿态](#关节与命名姿态) ·
 [末端位姿](#末端位姿) · [笛卡尔路径与朝向约束](#笛卡尔路径与朝向约束) ·
-[场景避障](#场景避障) · [夹爪开合](#夹爪开合) · [双臂动作](#双臂动作)。
+[场景避障](#场景避障) · [夹爪开合](#夹爪开合) · [双臂动作](#双臂动作) · [零重力拖动](#零重力拖动)。
 
 ### 通用设置
 
 | 参数 | 默认值 | 可选值 / 单位 | 作用 | 适用示例 |
 |---|---|---|---|---|
-| `--arm` | 单臂服务自动识别；双臂服务中的基础示例默认 `right` | `left`、`right`；`named_pose`、`record_startup`、`return_startup`、`collision_check` 还支持 `both` | 选择要控制、记录或查询的手臂 | 基础示例 |
+| `--arm` | 单臂服务自动识别；双臂服务中的基础示例默认 `right` | `left`、`right`；`named_pose`、`record_startup`、`return_startup`、`collision_check`、`freedrive` 还支持 `both` | 选择要控制、记录或查询的手臂 | 基础示例 |
 | `--frame` | `world` | `world`、`base_link` | 位移、旋转及场景对象的参考系 | 全部接受；空间目标使用 |
-| `--execute` | 关闭 | 开关，无需赋值 | 执行规划结果，省略时只规划 | 除 `record_startup`、`collision_check` 外 |
+| `--execute` | 关闭 | 开关，无需赋值 | 执行规划结果；`freedrive` 进入拖动模式，省略时只检查条件 | 除 `record_startup`、`collision_check` 外 |
 | `--help` | — | 开关，无需赋值 | 显示当前示例的参数帮助 | 全部 |
 
 双臂服务下，`base_link` 指所选手臂的根部；选择 `both` 时指公共根部。
@@ -105,10 +106,10 @@ world 原点位于两根部安装中心的中点，坐标轴方向与单臂一�
 
 | 参数 | 默认值 | 可选值 / 单位 | 作用 | 适用示例 |
 |---|---|---|---|---|
-| `--velocity` | `0.05` | `(0, 1]` | 相对关节规划限位的速度缩放 | 除 `record_startup`、`collision_check` 外 |
-| `--acceleration` | `0.05` | `(0, 1]` | 相对关节规划限位的加速度缩放 | 除 `record_startup`、`collision_check` 外 |
-| `--planning-time` | `10` | 正数，秒 | 规划请求时间预算，不是动作时长 | 除 `record_startup`、`collision_check` 外接受；笛卡尔路径不使用该搜索预算 |
-| `--pipeline` | `ompl` | `ompl`、`chomp`、`stomp`，支持情况见[规划器选择](#规划器选择) | 选择规划管线 | 手臂规划示例，`cartesian_path` 除外 |
+| `--velocity` | `0.05` | `(0, 1]` | 相对关节规划限位的速度缩放 | 除 `record_startup`、`collision_check`、`freedrive` 外 |
+| `--acceleration` | `0.05` | `(0, 1]` | 相对关节规划限位的加速度缩放 | 除 `record_startup`、`collision_check`、`freedrive` 外 |
+| `--planning-time` | `10` | 正数，秒 | 规划请求时间预算，不是动作时长 | 除 `record_startup`、`collision_check`、`freedrive` 外接受；笛卡尔路径不使用该搜索预算 |
+| `--pipeline` | `ompl` | `ompl`、`chomp`、`stomp`，支持情况见[规划器选择](#规划器选择) | 选择规划管线 | 手臂规划示例，`cartesian_path`、`dual_cartesian_square` 除外 |
 | `--planner` | `RRTConnect` | `RRTConnect`、`RRTstar`、`PRM`、`EST`、`LBKPIECE`、`BiTRRT`、`AnytimePathShortening` | 选择 OMPL 算法 | 接受 `--pipeline` 且选择 `ompl` 的示例 |
 
 使用 CHOMP/STOMP 时省略 `--planner`。夹爪的速度、加速度缩放作用于规划轨迹，
@@ -142,7 +143,7 @@ world 原点位于两根部安装中心的中点，坐标轴方向与单臂一�
 | 参数 | 默认值 | 可选值 / 单位 | 作用 | 适用示例 |
 |---|---|---|---|---|
 | `--shape` | `line` | `line`、`square` | 选择直线或正方形路径 | `cartesian_path` |
-| `--size` | `0.02` | 正数，米 | 正方形边长 | `cartesian_path`，`--shape square` |
+| `--size` | 单臂 `0.02`；双臂 `0.05` | 正数，米 | 正方形边长 | `cartesian_path`（`--shape square`）、`dual_cartesian_square` |
 | `--plane` | `yz` | `xy`、`xz`、`yz` | 正方形所在平面，基于 `--frame` | `cartesian_path`，`--shape square` |
 | `--path-angle-tolerance` | `0.1` | 正数，rad | 运动过程中各轴允许的朝向偏差 | `orientation_constraint` |
 
@@ -168,7 +169,25 @@ world 原点位于两根部安装中心的中点，坐标轴方向与单臂一�
 | `--joint-index` | `1` | 整数 `1` 至 `7` | 两臂要改变目标角度的关节序号 | `dual_joint_goal` |
 | `--left-delta` | `-0.2` | 有限数值，rad | 左臂关节相对转角 | `dual_joint_goal` |
 | `--right-delta` | `0.2` | 有限数值，rad | 右臂关节相对转角 | `dual_joint_goal` |
-| `--approach` | `0.05` | 正数，米 | 每臂沿 world Y 方向向中间靠拢的距离 | `dual_avoidance` |
+
+`dual_cartesian_square` 从两侧当前法兰位置出发，在参考系的 YZ 平面画正方形：
+先向上，左臂向 +Y、右臂向 −Y 外移，再向下、返回各自起点，保持各自朝向。
+两臂同时到达每个角点并短暂停顿，整圈路径通过碰撞检查后才允许执行。
+
+### 零重力拖动
+
+| 参数 | 默认值 | 可选值 / 单位 | 作用 | 适用示例 |
+|---|---|---|---|---|
+| `--damping` | `0.3` | `[0, 5]` | 拖动时的关节阻尼 kd，越大越难拖动，0 为无阻尼 | `freedrive` |
+| `--duration` | 不限时 | 正数，秒 | 到时退出拖动；省略时按 Ctrl+C 退出 | `freedrive` |
+
+仅支持 real 模式，需要重力补偿开启、手臂静止且已使能。进入后暂停所选手臂的轨迹控制，
+以零位置刚度、重力补偿和所设阻尼手动引导；退出时保持拖动后的当前位置，恢复原先激活的控制器。
+拖动不会更新已记录的起始位置，需要时另用 `record_startup` 记录。
+
+重力补偿近似抵消重量，安装或负载参数有偏差时，松手仍可能漂移；手动拖动不经过 MoveIt 避障规划。
+客户端心跳中断超过 2 秒时，话题桥退出拖动并请求保持当前位置，不自动失能；
+客户端被强制结束后，轨迹控制器可能仍停用，可重启服务恢复。
 
 ## 运行结果
 
